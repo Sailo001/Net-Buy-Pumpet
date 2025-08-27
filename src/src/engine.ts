@@ -1,9 +1,10 @@
-import { Connection, Keypair, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
 import {
   Liquidity,
   jsonInfo2PoolKeys,
   TokenAmount,
   Token as RToken,
+  LiquidityPoolKeysV4,
 } from '@raydium-io/raydium-sdk';
 import bs58 from 'bs58';
 import 'dotenv/config';
@@ -29,15 +30,17 @@ export function startNetBuyPump(opts: Opts) {
 
   (async () => {
     const mint = new PublicKey(opts.mint);
-    const poolRaw = (
-      await (
-        await fetch(`https://api.raydium.io/v2/sdk/liquidity/mainnet.json?mint=${mint}`)
-      ).json()
-    ).official.find(
-      (p: any) => p.baseMint === mint.toString() || p.quoteMint === mint.toString()
+
+    // fetch pool info
+    const res = await fetch(
+      `https://api.raydium.io/v2/sdk/liquidity/mainnet.json?mint=${mint}`
+    );
+    const data = await res.json();
+    const poolRaw = (data.official as any[]).find(
+      (p) => p.baseMint === mint.toString() || p.quoteMint === mint.toString()
     );
     if (!poolRaw) throw new Error('Pool not found');
-    const poolKeys = jsonInfo2PoolKeys(poolRaw);
+    const poolKeys = jsonInfo2PoolKeys(poolRaw) as LiquidityPoolKeysV4;
 
     const base = new RToken(poolKeys.baseMint, 6, 'TOKEN', 'TOKEN');
     const quote = new RToken(poolKeys.quoteMint, 9, 'SOL', 'SOL');
@@ -59,10 +62,10 @@ export function startNetBuyPump(opts: Opts) {
       txBuy.sign(payer);
       await conn.sendRawTransaction(txBuy.serialize());
 
-      // SELL (only sellRatioPct % of what we bought)
+      // SELL (sellRatioPct % of what we bought)
       const sellAmount = new TokenAmount(
         base,
-        buyAmount.muln(opts.sellRatioPct).divn(100).raw
+        buyAmount.mul(opts.sellRatioPct).div(100).raw
       );
       const { innerTransactions: sell } = await Liquidity.makeSwapInstructionSimple({
         connection: conn,
@@ -86,4 +89,4 @@ export function startNetBuyPump(opts: Opts) {
   })();
 
   return { abort: () => (aborted = true) };
-}
+    }

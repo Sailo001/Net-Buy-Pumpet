@@ -2,6 +2,7 @@
   "name": "net-buy-pumpet",
   "version": "1.0.0",
   "description": "Telegram pump bot for Solana (Raydium)",
+  "type": "module",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"

@@ -1,10 +1,22 @@
-require('dotenv').config();
-const { Telegraf, Markup } = require('telegraf');
-const { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram } = require('@solana/web3.js');
-const fetch = require('node-fetch');
-const { Token, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } = require('@solana/spl-token');
-const bs58 = require('bs58');
-const { buildSwapInstruction } = require('@raydium-io/raydium-sdk');
+// === IMPORTS (ESM syntax) ===
+import 'dotenv/config.js';
+import { Telegraf, Markup } from 'telegraf';
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  LAMPORTS_PER_SOL,
+  Transaction,
+  SystemProgram
+} from '@solana/web3.js';
+import fetch from 'node-fetch';
+import {
+  Token,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID
+} from '@solana/spl-token';
+import bs58 from 'bs58';
+import { buildSwapInstruction } from '@raydium-io/raydium-sdk';
 
 // === CONFIGURATION ===
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -205,7 +217,6 @@ function sendConfig(ctx, edit = false) {
 }
 
 // --- TELEGRAM HANDLERS ---
-
 bot.start((ctx) => {
   if (ctx.from.id.toString() !== ADMIN) return;
   ctx.reply(
@@ -286,7 +297,6 @@ bot.action('sell_all', async (ctx) => {
 bot.action('noop', ctx => ctx.answerCbQuery());
 
 // --- RUN/STOP ---
-
 bot.command('pump', async (ctx) => {
   if (ctx.from.id.toString() !== ADMIN) return;
   if (running) return ctx.reply('⏳ Pump already in progress.');

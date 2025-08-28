@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "description": "Telegram pump bot for Solana (Raydium)",
   "type": "module",
-  "main": "index.js",
+  "main": "index.cjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.cjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

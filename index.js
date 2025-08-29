@@ -316,3 +316,6 @@ http.createServer((_, res) => res.end('OK')).listen(process.env.PORT || 3000);
 // Dummy HTTP endpoint for free Web Service
 import http from 'http';
 http.createServer((_, res) => res.end('OK')).listen(process.env.PORT || 3000);
+bot.launch()
+  .then(() => console.log('Bot running'))
+  .catch(console.error);

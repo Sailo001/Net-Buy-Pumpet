@@ -313,4 +313,6 @@ process.on('SIGTERM', () => { running = false; bot.stop('SIGTERM'); });
 // Health endpoint for Render free Web Service
 import http from 'http';
 http.createServer((_, res) => res.end('OK')).listen(process.env.PORT || 3000);
-bot.launch();
+// Dummy HTTP endpoint for free Web Service
+import http from 'http';
+http.createServer((_, res) => res.end('OK')).listen(process.env.PORT || 3000);

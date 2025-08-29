@@ -301,9 +301,12 @@ bot.command('stop', ctx => {
   ctx.reply('⏹️ Pump will stop after the current round.');
 });
 
-bot.launch()
-   .then(() => console.log('Bot running'))
-   .catch(console.error);
+try {
+  await bot.launch();
+  console.log('Bot running');
+} catch (e) {
+  console.error(e);
+}
 
 process.on('SIGINT', () => { running = false; bot.stop('SIGINT'); });
 process.on('SIGTERM', () => { running = false; bot.stop('SIGTERM'); });

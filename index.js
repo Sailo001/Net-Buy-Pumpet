@@ -314,6 +314,10 @@ process.on('SIGTERM', () => { running = false; bot.stop('SIGTERM'); });
 // Dummy HTTP endpoint for free Web Service
 import http from 'http';
 http.createServer((_, res) => res.end('OK')).listen(process.env.PORT || 3000);
-bot.launch()
-  .then(() => console.log('Bot running'))
-  .catch(console.error);
+
+try {
+  await bot.launch();
+  console.log('Bot running');
+} catch (e) {
+  console.error(e);
+}

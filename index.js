@@ -1550,7 +1550,6 @@ bot.catch((err, ctx) => {
 
 // === HEALTH CHECK SERVER FOR RENDER ===
 // === 100 % WORKING WEBHOOK + HEALTH SERVER ===
-import { createServer } from 'http';
 const port = process.env.PORT || 3000;
 
 const server = createServer((req, res) => {

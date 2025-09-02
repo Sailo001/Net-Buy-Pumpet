@@ -79,6 +79,15 @@ const setupFlow = {
   users: new Map(),
   data: new Map()
 };
+
+const SETUP_STEPS = {
+  WAITING_CONTRACT: 'waiting_contract',
+  WAITING_SOL_AMOUNT: 'waiting_sol_amount',
+  WAITING_SELL_PCT: 'waiting_sell_pct',
+  WAITING_DELAY: 'waiting_delay',
+  WAITING_MULTI_BUYS: 'waiting_multi_buys',
+  CONFIRMATION: 'confirmation'
+};
 const bot = new Telegraf(TELEGRAM_TOKEN);
 
 // 👇 ADD THIS
@@ -89,15 +98,6 @@ bot.telegram.setMyCommands([
   { command: 'help', description: 'Show help' }
 ]);
 bot.use(Telegraf.log());     // optional: logs every update
-const SETUP_STEPS = {
-  WAITING_CONTRACT: 'waiting_contract',
-  WAITING_SOL_AMOUNT: 'waiting_sol_amount',
-  WAITING_SELL_PCT: 'waiting_sell_pct',
-  WAITING_DELAY: 'waiting_delay',
-  WAITING_MULTI_BUYS: 'waiting_multi_buys',
-  CONFIRMATION: 'confirmation'
-};
-
 // === MEV PROTECTION CLASS ===
 class MEVProtection {
   constructor() {

@@ -1247,7 +1247,7 @@ bot.action('analyze_mev', async ctx => {
 });
 
 bot.action('multiwallet_status', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
+  if (ctx.from.id.toString() !== ADHEALTHALTHN) return;
 
   const wallets = multiWallet.getActiveWallets();
 
@@ -1549,7 +1549,10 @@ bot.catch((err, ctx) => {
 });
 
 // === HEALTH CHECK SERVER FOR RENDER ===
-// === CORRECTED WEB + HEALTH SERVER ===
+// === 100 % WORKING WEBHOOK + HEALTH SERVER ===
+import { createServer } from 'http';
+const port = process.env.PORT || 3000;
+
 const server = createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/webhook') {
     let body = '';
@@ -1558,7 +1561,7 @@ const server = createServer((req, res) => {
       try {
         bot.handleUpdate(JSON.parse(body));
         res.writeHead(200, { 'Content-Type': 'text/plain' }).end('OK');
-      } catch {
+      } catch (e) {
         res.writeHead(400).end('Bad Request');
       }
     });
@@ -1569,9 +1572,8 @@ const server = createServer((req, res) => {
     res.writeHead(404).end('Not Found');
   }
 });
-server.listen(process.env.PORT || 3000, () =>
-  console.log(`🌐 Health + webhook server on ${process.env.PORT || 3000}`)
-);
+
+server.listen(port, () => console.log(`🌐 Listening on port ${port}`));
 
 // === GRACEFUL SHUTDOWN ===
 async function gracefulShutdown() {

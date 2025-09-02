@@ -88,16 +88,7 @@ const SETUP_STEPS = {
   WAITING_MULTI_BUYS: 'waiting_multi_buys',
   CONFIRMATION: 'confirmation'
 };
-const bot = new Telegraf(TELEGRAM_TOKEN);
 
-// 👇 ADD THIS
-bot.telegram.setMyCommands([
-  { command: 'start', description: 'Main dashboard' },
-  { command: 'setup', description: 'Configure pump parameters' },
-  { command: 'status', description: 'View current configuration' },
-  { command: 'help', description: 'Show help' }
-]);
-bot.use(Telegraf.log());     // optional: logs every update
 // === MEV PROTECTION CLASS ===
 class MEVProtection {
   constructor() {

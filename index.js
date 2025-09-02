@@ -1549,56 +1549,33 @@ bot.catch((err, ctx) => {
 });
 
 // === HEALTH CHECK SERVER FOR RENDER ===
-const port = process.env.PORT || 3000;
 const server = createServer((req, res) => {
-  if (res.headersSent) return;
-
-  try {
-    if (req.url === '/webhook' && req.method === 'POST') {
-      let body = '';
-      req.on('data', chunk => (body += chunk));
-      req.on('end', () => {
-        if (res.headersSent) return;
-        try {
-          const update = JSON.parse(body);
-          bot.handleUpdate(update);
-          res.writeHead(200, { 'Content-Type': 'text/plain' });
-          res.end('OK');
-        } catch (err) {
-          console.error('Webhook processing error:', err);
-          if (!res.headersSent) {
-            res.writeHead(400, { 'Content-Type': 'text/plain' });
-            res.end('Bad Request');
-          }
-        }
-      });
-    } else if (req.url === '/health' || req.url === '/') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        status: 'healthy',
-        bot_running: !isShuttingDown,
-        pump_active: running,
-        configured: !!session.mint,
-        mev_protection: session.mevProtection,
-        multi_wallet: session.multiWallet,
-        wallet_count: multiWallet.getActiveWallets().length,
-        timestamp: new Date().toISOString()
-      }));
-    } else {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Not Found');
-    }
-  } catch (err) {
-    console.error('Server error:', err);
-    if (!res.headersSent) {
-      res.writeHead(500, { 'Content-Type': 'text/plain' });
-      res.end('Internal Server Error');
-    }
+  if (req.method === 'POST' && req.url === '/webhook') {
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', () => {
+      try {
+        bot.handleUpdate(JSON.parse(body));
+        res.writeHead(200, { 'Content-Type': 'text/plain' }).end('OK');
+      } catch {
+        res.writeHead(400).end('Bad Request');
+      }
+    });
+  } else if (req.url === '/health' || req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'healthy',
+      bot_running: !isShuttingDown,
+      pump_active: running,
+      configured: !!session.mint,
+      mev_protection: session.mevProtection,
+      multi_wallet: session.multiWallet,
+      wallet_count: multiWallet.getActiveWallets().length,
+      timestamp: new Date().toISOString()
+    }));
+  } else {
+    res.writeHead(404).end('Not Found');
   }
-});
-
-server.listen(port, () => {
-  console.log(`🌐 Health check server running on port ${port}`);
 });
 
 // === GRACEFUL SHUTDOWN ===

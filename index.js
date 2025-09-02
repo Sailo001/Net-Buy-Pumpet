@@ -1549,6 +1549,7 @@ bot.catch((err, ctx) => {
 });
 
 // === HEALTH CHECK SERVER FOR RENDER ===
+// === CORRECTED WEB + HEALTH SERVER ===
 const server = createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/webhook') {
     let body = '';
@@ -1563,20 +1564,14 @@ const server = createServer((req, res) => {
     });
   } else if (req.url === '/health' || req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      status: 'healthy',
-      bot_running: !isShuttingDown,
-      pump_active: running,
-      configured: !!session.mint,
-      mev_protection: session.mevProtection,
-      multi_wallet: session.multiWallet,
-      wallet_count: multiWallet.getActiveWallets().length,
-      timestamp: new Date().toISOString()
-    }));
+    res.end(JSON.stringify({ status: 'healthy', bot_running: !isShuttingDown }));
   } else {
     res.writeHead(404).end('Not Found');
   }
 });
+server.listen(process.env.PORT || 3000, () =>
+  console.log(`🌐 Health + webhook server on ${process.env.PORT || 3000}`)
+);
 
 // === GRACEFUL SHUTDOWN ===
 async function gracefulShutdown() {

@@ -738,7 +738,42 @@ bot.command('setup', ctx => {
 
   clearUserSetup(ctx.from.id);
   setUserStep(ctx.from.id, SETUP_STEPS.WAITING_CONTRACT);
-
+case SETUP_STEPS.WAITING_CONTRACT:
+  debugSetup(userId, currentStep, `Validating contract: ${text}`);
+  
+  if (!text || !/^EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v$/.test(text)) {
+    debugSetup(userId, currentStep, "Invalid format");
+    return ctx.reply(
+      '❌ Invalid contract address format. Please send a valid Solana token mint address.',
+      getSetupMenu()
+    );
+  }
+  
+  try {
+    const pool = await getRaydiumPoolInfo(text);
+    debugSetup(userId, currentStep, `Pool found: ${pool.id}`);
+    
+    userData.mint = text;
+    setUserStep(userId, SETUP_STEPS.WAITING_SOL_AMOUNT);
+    
+    debugSetup(userId, getCurrentStep(userId), "Moved to SOL amount step");
+    
+    await ctx.reply(
+      '✅ **Token Found!**\n\n' +
+      '🔧 **Setup - Step 2/5**\n\n' +
+      '💰 **Enter SOL Amount per Buy:**\n' +
+      '📝 How much SOL to spend on each buy?\n\n' +
+      '💡 Examples: `0.1`, `0.5`, `1.0`',
+      { ...getSetupMenu(), parse_mode: 'Markdown' }
+    );
+  } catch (err) {
+    debugSetup(userId, currentStep, `Pool not found: ${err.message}`);
+    return ctx.reply(
+      `❌ Token not found in Raydium pools. Please check the contract address.\n\nError: ${err.message}`,
+      getSetupMenu()
+    );
+  }
+  break;
   ctx.reply(
     '🔧 **Pump Setup - Step 1/5**\n\n' +
     '🎯 **Enter Token Contract Address:**\n' +

@@ -798,12 +798,26 @@ bot.command('help', ctx => {
 });
 
 // Handle the streamlined setup flow
+import { PublicKey } from '@solana/web3.js';
+
+// Utility: Validate Solana address
+function isValidSolanaAddress(address) {
+  try {
+    new PublicKey(address);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 bot.on('text', async ctx => {
   if (ctx.from.id.toString() !== ADMIN) return;
 
   const userId = ctx.from.id;
   const currentStep = getCurrentStep(userId);
   const text = ctx.message.text.trim();
+
+  console.log(`📩 Message from ${userId}: "${text}" | Step: ${currentStep || 'NONE'}`);
 
   if (!currentStep) {
     if (text && !text.startsWith('/')) {
@@ -820,16 +834,23 @@ bot.on('text', async ctx => {
   try {
     switch (currentStep) {
       case SETUP_STEPS.WAITING_CONTRACT:
-        if (!text || text.length < 32 || text.length > 50) {
+        console.log("🔧 Setup Step 1: Contract address entered:", text);
+
+        if (!isValidSolanaAddress(text)) {
+          console.log("❌ Invalid Solana address format");
           return ctx.reply(
             '❌ Invalid contract address. Please enter a valid Solana token mint address.',
             getSetupMenu()
           );
         }
+
         try {
           await getRaydiumPoolInfo(text);
           userData.mint = text;
           setUserStep(userId, SETUP_STEPS.WAITING_SOL_AMOUNT);
+
+          console.log("✅ Token found on Raydium:", text);
+
           ctx.reply(
             '✅ **Token Found!**\n\n' +
             '🔧 **Setup - Step 2/5**\n\n' +
@@ -839,23 +860,29 @@ bot.on('text', async ctx => {
             { ...getSetupMenu(), parse_mode: 'Markdown' }
           );
         } catch (err) {
+          console.error("❌ Raydium lookup failed:", err);
           return ctx.reply(
-            `❌ Token not found in Raydium pools. Please check the contract address.\n\nError: ${err.message}`,
+            '❌ Could not verify this token on Raydium pools. Please try another contract.',
             getSetupMenu()
           );
         }
         break;
 
       case SETUP_STEPS.WAITING_SOL_AMOUNT:
+        console.log("🔧 Setup Step 2: SOL amount entered:", text);
+
         const solAmount = parseFloat(text);
         if (isNaN(solAmount) || solAmount <= 0 || solAmount > 100) {
+          console.log("❌ Invalid SOL amount:", text);
           return ctx.reply(
             '❌ Invalid SOL amount. Please enter a number between 0.01 and 100.',
             getSetupMenu()
           );
         }
+
         userData.buySol = solAmount;
         setUserStep(userId, SETUP_STEPS.WAITING_SELL_PCT);
+
         ctx.reply(
           '✅ **SOL Amount Set!**\n\n' +
           '🔧 **Setup - Step 3/5**\n\n' +
@@ -867,15 +894,20 @@ bot.on('text', async ctx => {
         break;
 
       case SETUP_STEPS.WAITING_SELL_PCT:
+        console.log("🔧 Setup Step 3: Sell percentage entered:", text);
+
         const sellPct = parseInt(text);
         if (isNaN(sellPct) || sellPct < 0 || sellPct > 100) {
+          console.log("❌ Invalid sell percentage:", text);
           return ctx.reply(
             '❌ Invalid percentage. Please enter a number between 0 and 100.',
             getSetupMenu()
           );
         }
+
         userData.sellPct = sellPct;
         setUserStep(userId, SETUP_STEPS.WAITING_DELAY);
+
         ctx.reply(
           '✅ **Sell Percentage Set!**\n\n' +
           '🔧 **Setup - Step 4/5**\n\n' +
@@ -887,15 +919,20 @@ bot.on('text', async ctx => {
         break;
 
       case SETUP_STEPS.WAITING_DELAY:
+        console.log("🔧 Setup Step 4: Delay entered:", text);
+
         const delay = parseInt(text);
         if (isNaN(delay) || delay < 1 || delay > 300) {
+          console.log("❌ Invalid delay:", text);
           return ctx.reply(
             '❌ Invalid delay. Please enter a number between 1 and 300 seconds.',
             getSetupMenu()
           );
         }
+
         userData.delaySec = delay;
         setUserStep(userId, SETUP_STEPS.WAITING_MULTI_BUYS);
+
         ctx.reply(
           '✅ **Delay Set!**\n\n' +
           '🔧 **Setup - Step 5/5**\n\n' +
@@ -907,13 +944,17 @@ bot.on('text', async ctx => {
         break;
 
       case SETUP_STEPS.WAITING_MULTI_BUYS:
+        console.log("🔧 Setup Step 5: Multi-buys entered:", text);
+
         const multiBuys = parseInt(text);
         if (isNaN(multiBuys) || multiBuys < 1 || multiBuys > 10) {
+          console.log("❌ Invalid multi-buys:", text);
           return ctx.reply(
             '❌ Invalid number. Please enter between 1 and 10 buys per cycle.',
             getSetupMenu()
           );
         }
+
         userData.multiBuys = multiBuys;
         setUserStep(userId, SETUP_STEPS.CONFIRMATION);
 
@@ -924,6 +965,8 @@ bot.on('text', async ctx => {
           [Markup.button.callback('🏠 Main Menu', 'main_menu')]
         ]);
 
+        console.log("✅ Setup complete for user:", userId, userData);
+
         ctx.reply(
           '🎉 **Setup Complete!**\n\n' +
           getSetupSummary(userData) + '\n\n' +
@@ -933,6 +976,7 @@ bot.on('text', async ctx => {
         break;
     }
   } catch (err) {
+    console.error("❌ Setup flow error:", err);
     ctx.reply(
       `❌ Setup error: ${err.message}\n\nPlease try again or cancel setup.`,
       getSetupMenu()
@@ -940,6 +984,8 @@ bot.on('text', async ctx => {
     clearUserSetup(userId);
   }
 });
+
+      
 
 // === BUTTON HANDLERS ===
 bot.action('main_menu', ctx => {

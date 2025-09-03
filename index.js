@@ -1211,15 +1211,19 @@ bot.action(/.*/, async ctx => {
 
 
 // === ADVANCED BUTTON HANDLERS ===
+// === ADVANCED BUTTON HANDLERS ===
 bot.action('toggle_mev', ctx => {
   if (ctx.from.id.toString() !== ADMIN) return;
 
   session.mevProtection = !session.mevProtection;
+
+  console.log(`🛡️ MEV Protection toggled: ${session.mevProtection ? 'ENABLED' : 'DISABLED'}`);
+
   ctx.reply(
     `🛡️ **MEV Protection ${session.mevProtection ? 'ENABLED' : 'DISABLED'}**\n\n` +
     `${session.mevProtection
-        ? '✅ Transactions will use Jito private mempool\n✅ Transaction chunking active\n✅ Anti-sandwich protection'
-        : '⚠️ Transactions will use public mempool\n⚠️ Vulnerable to MEV attacks'
+      ? '✅ Transactions will use Jito private mempool\n✅ Transaction chunking active\n✅ Anti-sandwich protection'
+      : '⚠️ Transactions will use public mempool\n⚠️ Vulnerable to MEV attacks'
     }`,
     { ...getAdvancedMenu(), parse_mode: 'Markdown' }
   );
@@ -1229,19 +1233,23 @@ bot.action('toggle_mev', ctx => {
 bot.action('toggle_multiwallet', ctx => {
   if (ctx.from.id.toString() !== ADMIN) return;
 
-  const availableWallets = multiWallet.getActiveWallets().length;
+  const availableWallets = multiWallet?.getActiveWallets?.() || [];
+  console.log(`🎭 Multi-Wallet toggle requested. Available wallets: ${availableWallets.length}`);
 
-  if (availableWallets < 2) {
+  if (availableWallets.length < 2) {
+    console.warn('⚠️ Multi-wallet toggle failed: Less than 2 wallets available.');
     ctx.answerCbQuery('Need multiple wallets! Add WALLET_PRIVATE_KEYS to environment.');
     return;
   }
 
   session.multiWallet = !session.multiWallet;
+  console.log(`🎭 Multi-Wallet mode is now: ${session.multiWallet ? 'ENABLED' : 'DISABLED'}`);
+
   ctx.reply(
     `🎭 **Multi-Wallet ${session.multiWallet ? 'ENABLED' : 'DISABLED'}**\n\n` +
     `${session.multiWallet
-        ? `✅ Using ${availableWallets} wallets for coordination\n✅ Natural trading patterns\n✅ Distributed risk`
-        : '⚠️ Using single wallet only'
+      ? `✅ Using ${availableWallets.length} wallets for coordination\n✅ Natural trading patterns\n✅ Distributed risk`
+      : '⚠️ Using single wallet only'
     }`,
     { ...getAdvancedMenu(), parse_mode: 'Markdown' }
   );
@@ -1251,39 +1259,49 @@ bot.action('toggle_multiwallet', ctx => {
 bot.action('analyze_mev', async ctx => {
   if (ctx.from.id.toString() !== ADMIN) return;
 
-  if (!session.mint) {
+  if (!session.mint || typeof session.mint !== 'string') {
+    console.warn('❌ analyze_mev: Invalid or missing token mint in session.');
     ctx.answerCbQuery('Set token first!');
     return;
   }
+
+  console.log(`🔍 Starting MEV analysis for mint: ${session.mint}`);
 
   ctx.reply('🔍 **Analyzing MEV Activity...**', { parse_mode: 'Markdown' });
 
   try {
     const analysis = await mevProtection.detectMEVActivity(session.mint);
+    console.log('📊 MEV Analysis Results:', analysis);
+
+    if (!analysis || typeof analysis.riskScore !== 'number') {
+      throw new Error('Invalid analysis result');
+    }
 
     const analysisMsg = [
       '🔍 **MEV Analysis Results:**',
       '',
       `🎯 **Token:** ${session.mint.slice(0, 8)}...`,
       `📊 **Risk Score:** ${analysis.riskScore.toFixed(2)}/1.0`,
-      `🛡️ **Recommended Protection:** ${analysis.recommendation.toUpperCase()}`,
+      `🛡️ **Recommended Protection:** ${analysis.recommendation?.toUpperCase?.() || 'UNKNOWN'}`,
       '',
       '📈 **Detected Activity:**',
-      `🏃 Front-runs: ${analysis.indicators.frontRuns}`,
-      `🥪 Sandwich attacks: ${analysis.indicators.sandwiches}`,
-      `📋 Copy trades: ${analysis.indicators.copyTrades}`,
-      `📊 Total transactions analyzed: ${analysis.indicators.totalTxs}`,
+      `🏃 Front-runs: ${analysis.indicators?.frontRuns ?? 0}`,
+      `🥪 Sandwich attacks: ${analysis.indicators?.sandwiches ?? 0}`,
+      `📋 Copy trades: ${analysis.indicators?.copyTrades ?? 0}`,
+      `📊 Total transactions analyzed: ${analysis.indicators?.totalTxs ?? 0}`,
       '',
-      `💡 **Recommendation:** ${analysis.riskScore > 0.7
+      `💡 **Recommendation:** ${
+        analysis.riskScore > 0.7
           ? 'HIGH MEV RISK - Use maximum protection!'
           : analysis.riskScore > 0.3
-              ? 'Medium risk - Standard protection recommended'
-              : 'Low risk - Minimal protection needed'
+            ? 'Medium risk - Standard protection recommended'
+            : 'Low risk - Minimal protection needed'
       }`
     ].join('\n');
 
     ctx.reply(analysisMsg, { ...getAdvancedMenu(), parse_mode: 'Markdown' });
   } catch (err) {
+    console.error('❌ MEV Analysis Failed:', err);
     ctx.reply(
       `❌ **MEV Analysis Failed:** ${err.message}`,
       { ...getAdvancedMenu(), parse_mode: 'Markdown' }
@@ -1296,7 +1314,16 @@ bot.action('analyze_mev', async ctx => {
 bot.action('multiwallet_status', ctx => {
   if (ctx.from.id.toString() !== ADMIN) return;
 
-  const wallets = multiWallet.getActiveWallets();
+  const wallets = multiWallet?.getActiveWallets?.() || [];
+  console.log(`📊 Checking multi-wallet status: ${wallets.length} wallets found`);
+
+  if (wallets.length === 0) {
+    ctx.reply(
+      '❌ **No wallets available!**\n\nCheck your WALLET_PRIVATE_KEYS environment variable.',
+      { ...getAdvancedMenu(), parse_mode: 'Markdown' }
+    );
+    return;
+  }
 
   const statusMsg = [
     '🎭 **Multi-Wallet Status:**',
@@ -1304,16 +1331,23 @@ bot.action('multiwallet_status', ctx => {
     `👥 **Total Wallets:** ${wallets.length}`,
     `🎯 **Active Wallets:** ${wallets.filter(w => w.active).length}`,
     '',
-    '💼 **Wallet Details:'
+    '💼 **Wallet Details:**'
   ];
 
   wallets.forEach((wallet, index) => {
-    statusMsg.push(
-      `${index + 1}. **${wallet.role.toUpperCase()}**`,
-      `   📍 ${wallet.keypair.publicKey.toString().slice(0, 8)}...${wallet.keypair.publicKey.toString().slice(-4)}`,
-      `   🔄 Status: ${wallet.active ? '🟢 Active' : '🔴 Inactive'}`,
-      ''
-    );
+    try {
+      const pubKey = wallet.keypair?.publicKey?.toString?.();
+      if (!pubKey) throw new Error('Missing public key');
+
+      statusMsg.push(
+        `${index + 1}. **${wallet.role?.toUpperCase?.() || 'UNKNOWN'}**`,
+        `   📍 ${pubKey.slice(0, 8)}...${pubKey.slice(-4)}`,
+        `   🔄 Status: ${wallet.active ? '🟢 Active' : '🔴 Inactive'}`,
+        ''
+      );
+    } catch (err) {
+      console.warn(`⚠️ Skipping wallet ${index + 1}:`, err.message);
+    }
   });
 
   statusMsg.push(
@@ -1327,230 +1361,10 @@ bot.action('multiwallet_status', ctx => {
   ctx.reply(statusMsg.join('\n'), { ...getAdvancedMenu(), parse_mode: 'Markdown' });
   ctx.answerCbQuery();
 });
-
-// === PUMP LOGIC WITH MULTI-WALLET ===
-async function startPumpLoop(ctx) {
-  let buyAmount = session.buySol;
-  let cycleCount = 0;
-
-  const initialMevAnalysis = await mevProtection.detectMEVActivity(session.mint);
-  await ctx.telegram.sendMessage(ADMIN,
-    `🛡️ **MEV Analysis Complete**\n` +
-    `Risk Score: ${initialMevAnalysis.riskScore.toFixed(2)}\n` +
-    `Protection Level: ${initialMevAnalysis.recommendation.toUpperCase()}`,
-    { parse_mode: 'Markdown' }
-  );
-
-  while (running && !isShuttingDown) {
-    try {
-      cycleCount++;
-      await ctx.telegram.sendMessage(ADMIN,
-        `🔄 **Cycle ${cycleCount} Starting** - ${buyAmount.toFixed(4)} SOL`,
-        { parse_mode: 'Markdown' }
-      );
-
-      for (let i = 0; i < session.multiBuys; i++) {
-        if (!running || isShuttingDown) break;
-
-        try {
-          let txResults;
-
-          if (session.multiWallet && multiWallet.getActiveWallets().length > 1) {
-            txResults = await multiWallet.executeCoordinatedBuy(session.mint, buyAmount, session.mevProtection);
-
-            for (const result of txResults) {
-              if (result.tx) {
-                await ctx.telegram.sendMessage(ADMIN,
-                  `✅ **${result.wallet.toUpperCase()}** - ${result.amount.toFixed(4)} SOL\n` +
-                  `📊 [Tx](https://solscan.io/tx/${result.tx})`,
-                  { parse_mode: 'Markdown' }
-                );
-              } else {
-                await ctx.telegram.sendMessage(ADMIN,
-                  `❌ **${result.wallet.toUpperCase()}** failed: ${result.error}`,
-                  { parse_mode: 'Markdown' }
-                );
-              }
-            }
-          } else if (session.mevProtection) {
-            txResults = await buyTokenMEVProtected(session.mint, buyAmount);
-
-            if (Array.isArray(txResults)) {
-              for (let j = 0; j < txResults.length; j++) {
-                await ctx.telegram.sendMessage(ADMIN,
-                  `✅ **Buy ${i + 1}.${j + 1}/${session.multiBuys}** - Protected\n` +
-                  `📊 [Tx](https://solscan.io/tx/${txResults[j]})`,
-                  { parse_mode: 'Markdown' }
-                );
-              }
-            } else {
-              await ctx.telegram.sendMessage(ADMIN,
-                `✅ **Buy ${i + 1}/${session.multiBuys}** - Protected\n` +
-                `📊 [Tx](https://solscan.io/tx/${txResults})`,
-                { parse_mode: 'Markdown' }
-              );
-            }
-          } else {
-            const tx = await buyTokenSingle(session.mint, buyAmount);
-            await ctx.telegram.sendMessage(ADMIN,
-              `✅ **Buy ${i + 1}/${session.multiBuys}** - Standard\n` +
-              `📊 [Tx](https://solscan.io/tx/${tx})`,
-              { parse_mode: 'Markdown' }
-            );
-          }
-
-        } catch (err) {
-          await ctx.telegram.sendMessage(ADMIN,
-            `❌ **Buy ${i + 1} Failed:** ${err.message}`,
-            { parse_mode: 'Markdown' }
-          );
-        }
-
-        if (i < session.multiBuys - 1) {
-          await new Promise(res => setTimeout(res, 1000));
-        }
-      }
-
-      if (session.sellPct > 0 && running && !isShuttingDown) {
-        try {
-          let sellResults;
-
-          if (session.mevProtection) {
-            sellResults = await sellTokenMEVProtected(session.mint, session.sellPct);
-
-            if (Array.isArray(sellResults)) {
-              for (let j = 0; j < sellResults.length; j++) {
-                await ctx.telegram.sendMessage(ADMIN,
-                  `📈 **Sell ${j + 1}/${sellResults.length}** - ${session.sellPct}% Protected\n` +
-                  `📊 [Tx](https://solscan.io/tx/${sellResults[j]})`,
-                  { parse_mode: 'Markdown' }
-                );
-              }
-            } else {
-              await ctx.telegram.sendMessage(ADMIN,
-                `📈 **Sold ${session.sellPct}%** - Protected\n` +
-                `📊 [Tx](https://solscan.io/tx/${sellResults})`,
-                { parse_mode: 'Markdown' }
-              );
-            }
-          } else {
-            const tx = await sellTokenSingle(session.mint, session.sellPct);
-            await ctx.telegram.sendMessage(ADMIN,
-              `📈 **Sold ${session.sellPct}%** - Standard\n` +
-              `📊 [Tx](https://solscan.io/tx/${tx})`,
-              { parse_mode: 'Markdown' }
-            );
-          }
-        } catch (err) {
-          await ctx.telegram.sendMessage(ADMIN,
-            `❌ **Sell Failed:** ${err.message}`,
-            { parse_mode: 'Markdown' }
-          );
-        }
-      }
-
-      buyAmount *= session.buyScale;
-
-      const baseDelayMs = session.delaySec * 1000;
-      const jitter = 0.8 + Math.random() * 0.4;
-      const mevDelay = initialMevAnalysis.riskScore > 0.7 ? 2000 : 0;
-      const delayMs = Math.max(500, (baseDelayMs * jitter) + mevDelay);
-
-      await new Promise(res => setTimeout(res, delayMs));
-
-    } catch (e) {
-      await ctx.telegram.sendMessage(ADMIN,
-        `❌ **Cycle ${cycleCount} Error:** ${e.message}`,
-        { parse_mode: 'Markdown' }
-      );
-    }
-  }
-
-  await ctx.telegram.sendMessage(ADMIN,
-    '⏹️ **Pump Stopped**\n\nUse the menu to start again or check status.',
-    { ...getMainMenu(), parse_mode: 'Markdown' }
-  );
-}
-
-// Simple commands with menu buttons
-bot.command('pump', async ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-  if (running) return ctx.reply('⏳ Pump already in progress.', getMainMenu());
-  if (!session.mint) return ctx.reply('❌ Complete setup first! Use the Setup button below.', getMainMenu());
-
-  running = true;
-
-  const pumpStartMsg = [
-    '🔥 **PUMP STARTED!**',
-    '',
-    '📊 **Configuration:**',
-    `🎯 Token: ${session.mint.slice(0, 8)}...`,
-    `💰 Buy: ${session.buySol} SOL per cycle`,
-    `📈 Sell: ${session.sellPct}% after each cycle`,
-    `⏱️ Delay: ${session.delaySec}s between cycles`,
-    `🔄 Multi-Buys: ${session.multiBuys} per cycle`,
-    `🛡️ MEV Protection: ${session.mevProtection ? 'ON' : 'OFF'}`,
-    `🎭 Multi-Wallet: ${session.multiWallet ? 'ON' : 'OFF'}`,
-    '',
-    '📈 **Monitoring transactions...**'
-  ].join('\n');
-
-  const pumpMenu = Markup.inlineKeyboard([
-    [Markup.button.callback('⏹️ Stop Pump', 'stop_pump')],
-    [Markup.button.callback('📊 View Status', 'refresh_status')],
-    [Markup.button.callback('💰 Emergency Sell All', 'sell_all_confirm')],
-    [Markup.button.callback('🛡️ Advanced Settings', 'advanced_menu')],
-    [Markup.button.callback('🏠 Main Menu', 'main_menu')]
-  ]);
-
-  ctx.reply(pumpStartMsg, { ...pumpMenu, parse_mode: 'Markdown' });
-  startPumpLoop(ctx);
-});
-
-bot.command('stop', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-  if (!running) return ctx.reply('⏹️ Pump is not running.', getMainMenu());
-
-  running = false;
-  ctx.reply(
-    '⏹️ **Pump will stop after current cycle.**\n\nUse the menu below for other actions.',
-    { ...getMainMenu(), parse_mode: 'Markdown' }
-  );
-});
-
-bot.command('sellall', async ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-  if (!session.mint) return ctx.reply('❌ No token configured!', getMainMenu());
-
-  try {
-    let results;
-    if (session.mevProtection) {
-      results = await sellTokenMEVProtected(session.mint, 100);
-    } else {
-      results = await sellTokenSingle(session.mint, 100);
-    }
-
-    if (Array.isArray(results)) {
-      const txLinks = results.map((tx, i) => `[Tx${i + 1}](https://solscan.io/tx/${tx})`).join(' ');
-      ctx.reply(
-        '✅ **All Tokens Sold!**\n\n' +
-        `📊 Transactions: ${txLinks}`,
-        { ...getMainMenu(), parse_mode: 'Markdown' }
-      );
-    } else {
-      ctx.reply(
-        '✅ **All Tokens Sold!**\n\n' +
-        `📊 [View Transaction](https://solscan.io/tx/${results})`,
-        { ...getMainMenu(), parse_mode: 'Markdown' }
-      );
-    }
-  } catch (err) {
-    ctx.reply(
-      `❌ **Sell Failed:** ${err.message}`,
-      getMainMenu()
-    );
-  }
-});
+    
+              
+        
+       
 
 // Handle unrecognized commands
 bot.on('message', ctx => {

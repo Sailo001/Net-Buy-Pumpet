@@ -798,7 +798,6 @@ bot.command('help', ctx => {
 });
 
 // Handle the streamlined setup flow
-import { PublicKey } from '@solana/web3.js';
 
 // Utility: Validate Solana address
 function isValidSolanaAddress(address) {

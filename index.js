@@ -1483,29 +1483,34 @@ server.listen(port, () => {
 });
 
 // === GRACEFUL SHUTDOWN ===
-async function gracefulShutdown() {
-  if (isShuttingDown) return;
+// === GRACEFUL SHUTDOWN ===
+async function gracefulShutdown(signal = 'manual') {
+  if (isShuttingDown) {
+    console.log(`[${new Date().toISOString()}] ⚠️ Shutdown already in progress (signal: ${signal})`);
+    return;
+  }
 
   isShuttingDown = true;
   running = false;
 
-  console.log('🔄 Initiating graceful shutdown...');
+  console.log(`[${new Date().toISOString()}] 🔄 Initiating graceful shutdown... (signal: ${signal})`);
 
   try {
-    await bot.telegram.sendMessage(ADMIN, '🛑 Bot shutting down...');
+    await bot.telegram.sendMessage(ADMIN, `🛑 Bot shutting down... (signal: ${signal})`);
+    console.log(`[${new Date().toISOString()}] 📩 Shutdown notice sent to admin`);
   } catch (err) {
-    console.error('Failed to send shutdown message:', err);
+    console.error(`[${new Date().toISOString()}] ❌ Failed to send shutdown message:`, err);
   }
 
   try {
     await bot.stop();
-    console.log('✅ Bot stopped successfully');
+    console.log(`[${new Date().toISOString()}] ✅ Bot stopped successfully`);
   } catch (err) {
-    console.error('Error during bot shutdown:', err);
+    console.error(`[${new Date().toISOString()}] ❌ Error during bot shutdown:`, err);
   }
 
   setTimeout(() => {
-    console.log('👋 Process exiting');
+    console.log(`[${new Date().toISOString()}] 👋 Process exiting now`);
     process.exit(0);
   }, 2000);
 }
@@ -1514,39 +1519,42 @@ async function gracefulShutdown() {
 async function startBot() {
   try {
     const useWebhooks = process.env.NODE_ENV === 'production' && process.env.RENDER_EXTERNAL_URL;
+    console.log(`[${new Date().toISOString()}] 🚀 Starting bot (mode: ${useWebhooks ? 'webhook' : 'polling'})`);
 
     if (useWebhooks) {
       const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}/webhook`;
       await bot.telegram.setWebhook(webhookUrl);
-      console.log(`🔗 Webhook set to: ${webhookUrl}`);
+      console.log(`[${new Date().toISOString()}] 🔗 Webhook set to: ${webhookUrl}`);
     } else {
       await bot.launch({
         dropPendingUpdates: true,
         allowedUpdates: ['message', 'callback_query']
       });
-      console.log('🔄 Using polling mode');
+      console.log(`[${new Date().toISOString()}] 🔄 Using polling mode`);
     }
 
-    console.log('✅ Net-Buy-Pumpet bot running!');
-    console.log(`🎭 Multi-wallet system: ${multiWallet.getActiveWallets().length} wallets loaded`);
+    console.log(`[${new Date().toISOString()}] ✅ Net-Buy-Pumpet bot running!`);
+    console.log(`[${new Date().toISOString()}] 🎭 Multi-wallet system: ${multiWallet.getActiveWallets().length} wallets loaded`);
 
     try {
-      await bot.telegram.sendMessage(ADMIN,
+      await bot.telegram.sendMessage(
+        ADMIN,
         '🤖 **Net-Buy-Pumpet deployed and running!**\n\n' +
         `🛡️ MEV Protection: Ready\n` +
         `🎭 Multi-Wallet: ${multiWallet.getActiveWallets().length} wallets\n\n` +
         `Send /start to begin!`,
         { parse_mode: 'Markdown' }
       );
+      console.log(`[${new Date().toISOString()}] 📩 Startup message sent to admin`);
     } catch (err) {
-      console.error('Failed to send startup message:', err);
+      console.error(`[${new Date().toISOString()}] ❌ Failed to send startup message:`, err);
     }
 
   } catch (err) {
-    console.error('❌ Failed to start bot:', err);
+    console.error(`[${new Date().toISOString()}] ❌ Failed to start bot:`, err);
 
     if (err.code === 409 || err.response?.error_code === 409) {
-      console.log('💡 Another bot instance is already running.');
+      console.log(`[${new Date().toISOString()}] 💡 Another bot instance is already running.`);
       console.log('Solutions:');
       console.log('1. Stop any other running instances');
       console.log('2. Wait 60 seconds and try again');
@@ -1557,25 +1565,30 @@ async function startBot() {
   }
 }
 
-// Enhanced signal handlers
+// === SIGNAL HANDLERS WITH LOGS ===
 process.once('SIGINT', () => {
-  console.log('📨 Received SIGINT signal');
-  gracefulShutdown();
+  console.log(`[${new Date().toISOString()}] 📨 Received SIGINT signal`);
+  gracefulShutdown('SIGINT');
 });
 
 process.once('SIGTERM', () => {
-  console.log('📨 Received SIGTERM signal');
-  gracefulShutdown();
+  console.log(`[${new Date().toISOString()}] 📨 Received SIGTERM signal`);
+  gracefulShutdown('SIGTERM');
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('💥 Uncaught Exception:', err);
-  gracefulShutdown();
+  console.error(`[${new Date().toISOString()}] 💥 Uncaught Exception:`, err);
+  gracefulShutdown('uncaughtException');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error(`[${new Date().toISOString()}] 💥 Unhandled Rejection at:`, promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
 });
 
-// Start the bot
+// === START BOT ===
 startBot();
+
+
+    
+

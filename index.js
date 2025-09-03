@@ -1247,7 +1247,7 @@ bot.action('analyze_mev', async ctx => {
 });
 
 bot.action('multiwallet_status', ctx => {
-  if (ctx.from.id.toString() !== ADHEALTHALTHN) return;
+  if (ctx.from.id.toString() !== ADMIN) return;
 
   const wallets = multiWallet.getActiveWallets();
 

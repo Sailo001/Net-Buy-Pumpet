@@ -17,6 +17,14 @@ import {
 import fetch from 'node-fetch';
 import bs58 from 'bs58';
 import { createServer } from 'http';
+// Add this at the beginning of your script after imports
+const requiredEnvVars = ['TELEGRAM_BOT_TOKEN', 'ADMIN_CHAT_ID', 'SOLANA_PRIVATE_KEY'];
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    console.error(`❌ Missing required environment variable: ${envVar}`);
+    process.exit(1);
+  }
+}
 
 import {
   TOKEN_PROGRAM_ID,

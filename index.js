@@ -1367,11 +1367,22 @@ bot.action('multiwallet_status', ctx => {
        
 
 // Handle unrecognized commands
+// === MESSAGE HANDLER ===
 bot.on('message', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
+  if (!ctx?.from?.id) {
+    console.warn('⚠️ Received message without valid ctx.from.id:', ctx.message);
+    return;
+  }
+
+  if (ctx.from.id.toString() !== ADMIN) {
+    console.log(`❌ Unauthorized user tried to interact: ${ctx.from.id}`);
+    return;
+  }
 
   const userId = ctx.from.id;
   const currentStep = getCurrentStep(userId);
+
+  console.log(`📩 Message from ${userId}: "${ctx.message.text}" | Step: ${currentStep || 'none'}`);
 
   if (!currentStep && ctx.message.text && !ctx.message.text.startsWith('/')) {
     ctx.reply(
@@ -1383,28 +1394,28 @@ bot.on('message', ctx => {
 
 // === ERROR HANDLING ===
 bot.catch((err, ctx) => {
-  console.error('Bot error:', err);
+  console.error('❌ Bot error caught:', err);
 
   if (err.code === 409 || err.response?.error_code === 409) {
-    console.log('❌ Bot conflict detected: Another instance is already running');
-    console.log('Shutting down this instance...');
+    console.log('❌ Bot conflict detected: Another instance is already running.');
+    console.log('⚠️ Initiating graceful shutdown...');
     gracefulShutdown();
     return;
   }
 
   if (err.response?.error_code === 429) {
-    console.log('⚠️ Rate limited, slowing down...');
+    console.log('⚠️ Rate limited by Telegram. Slowing down...');
     return;
   }
 
   if (ctx) {
     try {
       ctx.reply(
-        `❌ **Bot Error:** ${err.message}\n\nUse the menu below to continue.`,
+        `❌ **Bot Error:** ${err.message || 'Unknown error'}\n\nUse the menu below to continue.`,
         { ...getMainMenu(), parse_mode: 'Markdown' }
       );
     } catch (replyErr) {
-      console.error('Failed to send error message:', replyErr);
+      console.error('⚠️ Failed to send error message to user:', replyErr);
     }
   }
 });
@@ -1412,7 +1423,10 @@ bot.catch((err, ctx) => {
 // === HEALTH CHECK SERVER FOR RENDER ===
 const port = process.env.PORT || 3000;
 const server = createServer((req, res) => {
-  if (res.headersSent) return;
+  if (res.headersSent) {
+    console.warn('⚠️ Response already sent for request:', req.url);
+    return;
+  }
 
   try {
     if (req.url === '/webhook' && req.method === 'POST') {
@@ -1422,11 +1436,12 @@ const server = createServer((req, res) => {
         if (res.headersSent) return;
         try {
           const update = JSON.parse(body);
+          console.log('📩 Webhook update received:', JSON.stringify(update, null, 2));
           bot.handleUpdate(update);
           res.writeHead(200, { 'Content-Type': 'text/plain' });
           res.end('OK');
         } catch (err) {
-          console.error('Webhook processing error:', err);
+          console.error('❌ Webhook processing error:', err);
           if (!res.headersSent) {
             res.writeHead(400, { 'Content-Type': 'text/plain' });
             res.end('Bad Request');
@@ -1434,23 +1449,28 @@ const server = createServer((req, res) => {
         }
       });
     } else if (req.url === '/health' || req.url === '/') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+      const healthPayload = {
         status: 'healthy',
         bot_running: !isShuttingDown,
         pump_active: running,
         configured: !!session.mint,
         mev_protection: session.mevProtection,
         multi_wallet: session.multiWallet,
-        wallet_count: multiWallet.getActiveWallets().length,
+        wallet_count: multiWallet?.getActiveWallets?.().length || 0,
         timestamp: new Date().toISOString()
-      }));
+      };
+
+      console.log('🌐 Health check ping received. Status:', healthPayload);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(healthPayload));
     } else {
+      console.warn(`⚠️ Unknown request: ${req.method} ${req.url}`);
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end('Not Found');
     }
   } catch (err) {
-    console.error('Server error:', err);
+    console.error('❌ Server error:', err);
     if (!res.headersSent) {
       res.writeHead(500, { 'Content-Type': 'text/plain' });
       res.end('Internal Server Error');

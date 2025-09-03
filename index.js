@@ -96,6 +96,10 @@ const SETUP_STEPS = {
   WAITING_MULTI_BUYS: 'waiting_multi_buys',
   CONFIRMATION: 'confirmation'
 };
+// Add this right after your SETUP_STEPS definition
+const debugSetup = (userId, step, message) => {
+  console.log(`[SETUP DEBUG] User: ${userId} | Step: ${step} | Message: ${message}`);
+};
 
 // === MEV PROTECTION CLASS ===
 class MEVProtection {

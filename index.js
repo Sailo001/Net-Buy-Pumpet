@@ -987,226 +987,228 @@ bot.on('text', async ctx => {
       
 
 // === BUTTON HANDLERS ===
-bot.action('main_menu', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-
-  const welcomeMsg = [
-    '🤖 **Net-Buy-Pumpet Dashboard**',
-    '',
-    '📊 **Current Status:**',
-    `🎯 Token: ${session.mint ? `${session.mint.slice(0, 8)}...` : '❌ Not configured'}`,
-    `💰 Buy: ${session.buySol} SOL per cycle`,
-    `📈 Sell %: ${session.sellPct}%`,
-    `⏱️ Delay: ${session.delaySec}s`,
-    `🔄 Multi-Buys: ${session.multiBuys}`,
-    `🤖 Status: ${running ? '🟢 Pumping Active' : '🔴 Stopped'}`,
-    `🎭 Wallets: ${multiWallet.getActiveWallets().length} loaded`,
-    '',
-    '👇 **Choose an action:**'
-  ].join('\n');
-
-  ctx.editMessageText(welcomeMsg, { ...getMainMenu(), parse_mode: 'Markdown' });
-  ctx.answerCbQuery();
-});
-
-bot.action('advanced_menu', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-
-  const advancedMsg = [
-    '🛡️ **Advanced Features Control**',
-    '',
-    '🎛️ **Current Settings:**',
-    `🛡️ MEV Protection: ${session.mevProtection ? '🟢 ON' : '🔴 OFF'}`,
-    `🎭 Multi-Wallet: ${session.multiWallet ? '🟢 ON' : '🔴 OFF'}`,
-    '',
-    '⚙️ **Toggle settings or run analysis below:**'
-  ].join('\n');
-
-  ctx.editMessageText(advancedMsg, { ...getAdvancedMenu(), parse_mode: 'Markdown' });
-  ctx.answerCbQuery();
-});
-
-bot.action('start_setup', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-
-  clearUserSetup(ctx.from.id);
-  setUserStep(ctx.from.id, SETUP_STEPS.WAITING_CONTRACT);
-
-  ctx.reply(
-    '🔧 **Pump Setup - Step 1/5**\n\n' +
-    '🎯 **Enter Token Contract Address:**\n' +
-    '📝 Please send the contract address (mint) of the token you want to pump.\n\n' +
-    '💡 Example: `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`',
-    { ...getSetupMenu(), parse_mode: 'Markdown' }
-  );
-  ctx.answerCbQuery();
-});
-
-bot.action('confirm_setup', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-
-  const userData = getUserData(ctx.from.id);
-
-  session.mint = userData.mint;
-  session.buySol = userData.buySol;
-  session.sellPct = userData.sellPct;
-  session.delaySec = userData.delaySec;
-  session.multiBuys = userData.multiBuys;
-
-  clearUserSetup(ctx.from.id);
-
-  ctx.reply(
-    '🎉 **Configuration Saved Successfully!**\n\n' +
-    showCurrentConfig() + '\n\n' +
-    '🚀 Ready to start pumping?',
-    { ...getMainMenu(), parse_mode: 'Markdown' }
-  );
-  ctx.answerCbQuery();
-});
-
-bot.action('cancel_setup', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-
-  clearUserSetup(ctx.from.id);
-  ctx.reply(
-    '❌ **Setup Cancelled**\n\nUse the menu below to start again or check status.',
-    getMainMenu()
-  );
-  ctx.answerCbQuery();
-});
-
-bot.action('refresh_status', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-
-  const statusMsg = [
-    showCurrentConfig(),
-    '',
-    `🔄 **Bot Status:** ${running ? '🟢 Pumping Active' : '🔴 Stopped'}`,
-    `🌐 **Connection:** ${rpcEndpoint}`,
-    `👤 **Main Wallet:** ${payer.publicKey.toString().slice(0, 8)}...`
-  ].join('\n');
-
-  ctx.reply(statusMsg, { ...getStatusMenu(), parse_mode: 'Markdown' });
-  ctx.answerCbQuery();
-});
-
-bot.action('start_pump', async ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-  if (running) {
-    ctx.answerCbQuery('Pump already running!');
-    return;
-  }
-  if (!session.mint) {
-    ctx.answerCbQuery('Please complete setup first!');
-    return;
+// === BUTTON HANDLERS WITH LOGGING ===
+bot.action(/.*/, async ctx => {
+  if (ctx.from.id.toString() !== ADMIN) {
+    console.log(`🚫 Unauthorized button press from ${ctx.from.id}, ignored.`);
+    return ctx.answerCbQuery('Not allowed.');
   }
 
-  running = true;
-
-  const pumpStartMsg = [
-    '🔥 **PUMP STARTED!**',
-    '',
-    '📊 **Configuration:**',
-    `🎯 Token: ${session.mint.slice(0, 8)}...`,
-    `💰 Buy: ${session.buySol} SOL per cycle`,
-    `📈 Sell: ${session.sellPct}% after each cycle`,
-    `⏱️ Delay: ${session.delaySec}s between cycles`,
-    `🔄 Multi-Buys: ${session.multiBuys} per cycle`,
-    `🛡️ MEV Protection: ${session.mevProtection ? 'ON' : 'OFF'}`,
-    `🎭 Multi-Wallet: ${session.multiWallet ? 'ON' : 'OFF'}`,
-    '',
-    '📈 **Monitoring transactions...**'
-  ].join('\n');
-
-  const pumpMenu = Markup.inlineKeyboard([
-    [Markup.button.callback('⏹️ Stop Pump', 'stop_pump')],
-    [Markup.button.callback('📊 View Status', 'refresh_status')],
-    [Markup.button.callback('💰 Emergency Sell All', 'sell_all_confirm')],
-    [Markup.button.callback('🛡️ Advanced Settings', 'advanced_menu')],
-    [Markup.button.callback('🏠 Main Menu', 'main_menu')]
-  ]);
-
-  ctx.reply(pumpStartMsg, { ...pumpMenu, parse_mode: 'Markdown' });
-  ctx.answerCbQuery();
-
-  startPumpLoop(ctx);
-});
-
-bot.action('stop_pump', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-
-  if (!running) {
-    ctx.answerCbQuery('Pump is not running!');
-    return;
-  }
-
-  running = false;
-  ctx.reply(
-    '⏹️ **Pump Stop Requested**\n\n' +
-    'The pump will stop after the current cycle completes.\n\n' +
-    '🔄 Use the menu below to check status or start a new pump.',
-    { ...getMainMenu(), parse_mode: 'Markdown' }
-  );
-  ctx.answerCbQuery('Pump stopping...');
-});
-
-bot.action('sell_all_confirm', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
-
-  if (!session.mint) {
-    ctx.answerCbQuery('No token configured!');
-    return;
-  }
-
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('🚨 YES, SELL ALL', 'sell_all_execute')],
-    [Markup.button.callback('❌ Cancel', 'main_menu')]
-  ]);
-
-  ctx.reply(
-    '🚨 **SELL ALL TOKENS**\n\n' +
-    `Are you sure you want to sell 100% of your ${session.mint.slice(0, 8)}... tokens?\n\n` +
-    '⚠️ This action cannot be undone!',
-    { ...keyboard, parse_mode: 'Markdown' }
-  );
-  ctx.answerCbQuery();
-});
-
-bot.action('sell_all_execute', async ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
+  const action = ctx.callbackQuery.data;
+  console.log(`📩 Button pressed: ${action} by ${ctx.from.id}`);
 
   try {
-    ctx.reply('⏳ **Selling all tokens...**', { parse_mode: 'Markdown' });
+    switch (action) {
+      case 'main_menu': {
+        console.log("📊 Rendering main menu with session:", session);
+        const welcomeMsg = [
+          '🤖 **Net-Buy-Pumpet Dashboard**',
+          '',
+          '📊 **Current Status:**',
+          `🎯 Token: ${session.mint ? `${session.mint.slice(0, 8)}...` : '❌ Not configured'}`,
+          `💰 Buy: ${session.buySol} SOL per cycle`,
+          `📈 Sell %: ${session.sellPct}%`,
+          `⏱️ Delay: ${session.delaySec}s`,
+          `🔄 Multi-Buys: ${session.multiBuys}`,
+          `🤖 Status: ${running ? '🟢 Pumping Active' : '🔴 Stopped'}`,
+          `🎭 Wallets: ${multiWallet.getActiveWallets().length} loaded`,
+          '',
+          '👇 **Choose an action:**'
+        ].join('\n');
+        await ctx.editMessageText(welcomeMsg, { ...getMainMenu(), parse_mode: 'Markdown' });
+        break;
+      }
 
-    let results;
-    if (session.mevProtection) {
-      results = await sellTokenMEVProtected(session.mint, 100);
-    } else {
-      results = await sellTokenSingle(session.mint, 100);
-    }
+      case 'advanced_menu': {
+        console.log("⚙️ Showing advanced menu");
+        const advancedMsg = [
+          '🛡️ **Advanced Features Control**',
+          '',
+          '🎛️ **Current Settings:**',
+          `🛡️ MEV Protection: ${session.mevProtection ? '🟢 ON' : '🔴 OFF'}`,
+          `🎭 Multi-Wallet: ${session.multiWallet ? '🟢 ON' : '🔴 OFF'}`,
+          '',
+          '⚙️ **Toggle settings or run analysis below:**'
+        ].join('\n');
+        await ctx.editMessageText(advancedMsg, { ...getAdvancedMenu(), parse_mode: 'Markdown' });
+        break;
+      }
 
-    if (Array.isArray(results)) {
-      const txLinks = results.map((tx, i) => `[Tx${i + 1}](https://solscan.io/tx/${tx})`).join(' ');
-      ctx.reply(
-        '✅ **All Tokens Sold!**\n\n' +
-        `📊 Transactions: ${txLinks}`,
-        { ...getMainMenu(), parse_mode: 'Markdown' }
-      );
-    } else {
-      ctx.reply(
-        '✅ **All Tokens Sold!**\n\n' +
-        `📊 [View Transaction](https://solscan.io/tx/${results})`,
-        { ...getMainMenu(), parse_mode: 'Markdown' }
-      );
+      case 'start_setup': {
+        console.log("📝 Setup started by", ctx.from.id);
+        clearUserSetup(ctx.from.id);
+        setUserStep(ctx.from.id, SETUP_STEPS.WAITING_CONTRACT);
+        await ctx.reply(
+          '🔧 **Pump Setup - Step 1/5**\n\n' +
+          '🎯 **Enter Token Contract Address:**\n' +
+          '📝 Please send the contract address (mint) of the token you want to pump.\n\n' +
+          '💡 Example: `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`',
+          { ...getSetupMenu(), parse_mode: 'Markdown' }
+        );
+        break;
+      }
+
+      case 'confirm_setup': {
+        const userData = getUserData(ctx.from.id);
+        console.log("✅ Confirming setup for", ctx.from.id, userData);
+
+        if (!userData?.mint || !userData?.buySol) {
+          console.warn("⚠️ Incomplete setup, cannot confirm.");
+          return ctx.reply('❌ Setup incomplete. Please restart setup.', getSetupMenu());
+        }
+
+        session.mint = userData.mint;
+        session.buySol = userData.buySol;
+        session.sellPct = userData.sellPct;
+        session.delaySec = userData.delaySec;
+        session.multiBuys = userData.multiBuys;
+
+        clearUserSetup(ctx.from.id);
+
+        await ctx.reply(
+          '🎉 **Configuration Saved Successfully!**\n\n' +
+          showCurrentConfig() + '\n\n' +
+          '🚀 Ready to start pumping?',
+          { ...getMainMenu(), parse_mode: 'Markdown' }
+        );
+        break;
+      }
+
+      case 'cancel_setup': {
+        console.log("❌ Setup cancelled by", ctx.from.id);
+        clearUserSetup(ctx.from.id);
+        await ctx.reply(
+          '❌ **Setup Cancelled**\n\nUse the menu below to start again or check status.',
+          getMainMenu()
+        );
+        break;
+      }
+
+      case 'refresh_status': {
+        console.log("🔄 Refreshing status for", ctx.from.id);
+        const statusMsg = [
+          showCurrentConfig(),
+          '',
+          `🔄 **Bot Status:** ${running ? '🟢 Pumping Active' : '🔴 Stopped'}`,
+          `🌐 **Connection:** ${rpcEndpoint}`,
+          `👤 **Main Wallet:** ${payer.publicKey.toString().slice(0, 8)}...`
+        ].join('\n');
+        await ctx.reply(statusMsg, { ...getStatusMenu(), parse_mode: 'Markdown' });
+        break;
+      }
+
+      case 'start_pump': {
+        if (running) {
+          console.log("⚠️ Pump already running");
+          return ctx.answerCbQuery('Pump already running!');
+        }
+        if (!session.mint) {
+          console.log("⚠️ Pump start blocked: no token configured");
+          return ctx.answerCbQuery('Please complete setup first!');
+        }
+
+        console.log("🚀 Pump started with config:", session);
+        running = true;
+        await ctx.reply(
+          '🔥 **PUMP STARTED!**\n\n' +
+          `🎯 Token: ${session.mint.slice(0, 8)}...\n` +
+          `💰 Buy: ${session.buySol} SOL per cycle\n` +
+          `📈 Sell: ${session.sellPct}%\n` +
+          `⏱️ Delay: ${session.delaySec}s\n` +
+          `🔄 Multi-Buys: ${session.multiBuys}\n` +
+          `🛡️ MEV Protection: ${session.mevProtection ? 'ON' : 'OFF'}\n` +
+          `🎭 Multi-Wallet: ${session.multiWallet ? 'ON' : 'OFF'}\n`,
+          { ...Markup.inlineKeyboard([
+              [Markup.button.callback('⏹️ Stop Pump', 'stop_pump')],
+              [Markup.button.callback('📊 View Status', 'refresh_status')],
+              [Markup.button.callback('💰 Emergency Sell All', 'sell_all_confirm')],
+              [Markup.button.callback('🛡️ Advanced Settings', 'advanced_menu')],
+              [Markup.button.callback('🏠 Main Menu', 'main_menu')]
+          ]), parse_mode: 'Markdown' }
+        );
+        startPumpLoop(ctx);
+        break;
+      }
+
+      case 'stop_pump': {
+        if (!running) {
+          console.log("⚠️ Stop requested but pump not running.");
+          return ctx.answerCbQuery('Pump is not running!');
+        }
+        console.log("🛑 Pump stop requested.");
+        running = false;
+        await ctx.reply(
+          '⏹️ **Pump Stop Requested**\n\nWill stop after current cycle.',
+          { ...getMainMenu(), parse_mode: 'Markdown' }
+        );
+        break;
+      }
+
+      case 'sell_all_confirm': {
+        if (!session.mint) {
+          console.log("⚠️ Sell-all blocked: no token configured.");
+          return ctx.answerCbQuery('No token configured!');
+        }
+        console.log("🚨 Sell-all confirmation requested.");
+        await ctx.reply(
+          '🚨 **SELL ALL TOKENS**\n\n' +
+          `Sell 100% of ${session.mint.slice(0, 8)}...?\n\n⚠️ Cannot be undone!`,
+          { ...Markup.inlineKeyboard([
+              [Markup.button.callback('🚨 YES, SELL ALL', 'sell_all_execute')],
+              [Markup.button.callback('❌ Cancel', 'main_menu')]
+          ]), parse_mode: 'Markdown' }
+        );
+        break;
+      }
+
+      case 'sell_all_execute': {
+        console.log("💰 Sell-all execution started.");
+        try {
+          const results = session.mevProtection
+            ? await sellTokenMEVProtected(session.mint, 100)
+            : await sellTokenSingle(session.mint, 100);
+
+          console.log("✅ Sell-all completed. Results:", results);
+
+          if (Array.isArray(results)) {
+            const txLinks = results.map((tx, i) => `[Tx${i + 1}](https://solscan.io/tx/${tx})`).join(' ');
+            await ctx.reply(
+              '✅ **All Tokens Sold!**\n\n' + `📊 Transactions: ${txLinks}`,
+              { ...getMainMenu(), parse_mode: 'Markdown' }
+            );
+          } else {
+            await ctx.reply(
+              '✅ **All Tokens Sold!**\n\n' +
+              `📊 [View Transaction](https://solscan.io/tx/${results})`,
+              { ...getMainMenu(), parse_mode: 'Markdown' }
+            );
+          }
+        } catch (err) {
+          console.error("❌ Sell-all failed:", err);
+          await ctx.reply(
+            `❌ **Sell Failed:**\n\n${err.message}`,
+            { ...getMainMenu(), parse_mode: 'Markdown' }
+          );
+        }
+        break;
+      }
+
+      default:
+        console.warn(`⚠️ Unknown button action: ${action}`);
+        break;
     }
   } catch (err) {
-    ctx.reply(
-      `❌ **Sell Failed:**\n\n${err.message}`,
-      { ...getMainMenu(), parse_mode: 'Markdown' }
-    );
+    console.error(`💥 Error handling button ${action}:`, err);
+    try {
+      await ctx.reply(`❌ Error: ${err.message}`, getMainMenu());
+    } catch (e) {
+      console.error("Failed to reply on error:", e);
+    }
   }
+
   ctx.answerCbQuery();
 });
+
 
 // === ADVANCED BUTTON HANDLERS ===
 bot.action('toggle_mev', ctx => {

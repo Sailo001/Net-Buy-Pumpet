@@ -1600,9 +1600,11 @@ bot.catch((err, ctx) => {
 
 // === HEALTH CHECK SERVER FOR RENDER ===
 // === 100 % WORKING WEBHOOK + HEALTH SERVER ===
+// === HEALTH + WEBHOOK SERVER ===
 const port = process.env.PORT || 3000;
 
 const server = createServer((req, res) => {
+  // 1️⃣  Telegram webhook endpoint
   if (req.method === 'POST' && req.url === '/webhook') {
     let body = '';
     req.on('data', chunk => (body += chunk));
@@ -1610,20 +1612,32 @@ const server = createServer((req, res) => {
       try {
         bot.handleUpdate(JSON.parse(body));
         res.writeHead(200, { 'Content-Type': 'text/plain' }).end('OK');
-      } catch (e) {
+      } catch {
         res.writeHead(400).end('Bad Request');
       }
     });
-  } else if (req.url === '/health' || req.url === '/') {
+  } 
+  // 2️⃣  Health-check & root endpoint
+  else if (req.url === '/health' || req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'healthy', bot_running: !isShuttingDown }));
-  } else {
+    res.end(JSON.stringify({
+      status        : 'healthy',
+      bot_running   : !isShuttingDown,
+      pump_active   : running,
+      configured    : !!session.mint,
+      mev_protection: session.mevProtection,
+      multi_wallet  : session.multiWallet,
+      wallet_count  : multiWallet.getActiveWallets().length,
+      timestamp     : new Date().toISOString()
+    }));
+  } 
+  // 3️⃣  404 fallback
+  else {
     res.writeHead(404).end('Not Found');
   }
 });
 
-server.listen(port, () => console.log(`🌐 Listening on port ${port}`));
-
+server.listen(port, () => console.log(`🌐 Server ready on port ${port}`));
 // === GRACEFUL SHUTDOWN ===
 async function gracefulShutdown() {
   if (isShuttingDown) return;

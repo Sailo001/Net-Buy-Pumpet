@@ -806,12 +806,16 @@ bot.command('help', ctx => {
 });
 
 // Handle the streamlined setup flow
+// Handle the streamlined setup flow
 bot.on('text', async ctx => {
   if (ctx.from.id.toString() !== ADMIN) return;
 
   const userId = ctx.from.id;
   const currentStep = getCurrentStep(userId);
   const text = ctx.message.text.trim();
+
+  // Debugging: Log all messages during setup
+  console.log(`User ${userId} at step ${currentStep} sent: ${text}`);
 
   if (!currentStep) {
     if (text && !text.startsWith('/')) {
@@ -828,6 +832,8 @@ bot.on('text', async ctx => {
   try {
     switch (currentStep) {
       case SETUP_STEPS.WAITING_CONTRACT:
+        console.log(`User ${userId} submitted contract: ${text}`);
+        
         if (!text || text.length < 32 || text.length > 50) {
           return ctx.reply(
             '❌ Invalid contract address. Please enter a valid Solana token mint address.',
@@ -838,6 +844,9 @@ bot.on('text', async ctx => {
           await getRaydiumPoolInfo(text);
           userData.mint = text;
           setUserStep(userId, SETUP_STEPS.WAITING_SOL_AMOUNT);
+          
+          console.log(`Current step after submission: ${getCurrentStep(userId)}`);
+          
           ctx.reply(
             '✅ **Token Found!**\n\n' +
             '🔧 **Setup - Step 2/5**\n\n' +
@@ -855,6 +864,8 @@ bot.on('text', async ctx => {
         break;
 
       case SETUP_STEPS.WAITING_SOL_AMOUNT:
+        console.log(`User ${userId} submitted SOL amount: ${text}`);
+        
         const solAmount = parseFloat(text);
         if (isNaN(solAmount) || solAmount <= 0 || solAmount > 100) {
           return ctx.reply(
@@ -864,6 +875,9 @@ bot.on('text', async ctx => {
         }
         userData.buySol = solAmount;
         setUserStep(userId, SETUP_STEPS.WAITING_SELL_PCT);
+        
+        console.log(`Current step after submission: ${getCurrentStep(userId)}`);
+        
         ctx.reply(
           '✅ **SOL Amount Set!**\n\n' +
           '🔧 **Setup - Step 3/5**\n\n' +
@@ -875,6 +889,8 @@ bot.on('text', async ctx => {
         break;
 
       case SETUP_STEPS.WAITING_SELL_PCT:
+        console.log(`User ${userId} submitted sell percentage: ${text}`);
+        
         const sellPct = parseInt(text);
         if (isNaN(sellPct) || sellPct < 0 || sellPct > 100) {
           return ctx.reply(
@@ -884,6 +900,9 @@ bot.on('text', async ctx => {
         }
         userData.sellPct = sellPct;
         setUserStep(userId, SETUP_STEPS.WAITING_DELAY);
+        
+        console.log(`Current step after submission: ${getCurrentStep(userId)}`);
+        
         ctx.reply(
           '✅ **Sell Percentage Set!**\n\n' +
           '🔧 **Setup - Step 4/5**\n\n' +
@@ -895,6 +914,8 @@ bot.on('text', async ctx => {
         break;
 
       case SETUP_STEPS.WAITING_DELAY:
+        console.log(`User ${userId} submitted delay: ${text}`);
+        
         const delay = parseInt(text);
         if (isNaN(delay) || delay < 1 || delay > 300) {
           return ctx.reply(
@@ -904,6 +925,9 @@ bot.on('text', async ctx => {
         }
         userData.delaySec = delay;
         setUserStep(userId, SETUP_STEPS.WAITING_MULTI_BUYS);
+        
+        console.log(`Current step after submission: ${getCurrentStep(userId)}`);
+        
         ctx.reply(
           '✅ **Delay Set!**\n\n' +
           '🔧 **Setup - Step 5/5**\n\n' +
@@ -915,6 +939,8 @@ bot.on('text', async ctx => {
         break;
 
       case SETUP_STEPS.WAITING_MULTI_BUYS:
+        console.log(`User ${userId} submitted multi-buys: ${text}`);
+        
         const multiBuys = parseInt(text);
         if (isNaN(multiBuys) || multiBuys < 1 || multiBuys > 10) {
           return ctx.reply(
@@ -924,6 +950,8 @@ bot.on('text', async ctx => {
         }
         userData.multiBuys = multiBuys;
         setUserStep(userId, SETUP_STEPS.CONFIRMATION);
+        
+        console.log(`Current step after submission: ${getCurrentStep(userId)}`);
 
         const confirmationKeyboard = Markup.inlineKeyboard([
           [Markup.button.callback('✅ Confirm & Save', 'confirm_setup')],
@@ -941,6 +969,7 @@ bot.on('text', async ctx => {
         break;
     }
   } catch (err) {
+    console.error(`Setup error for user ${userId}:`, err);
     ctx.reply(
       `❌ Setup error: ${err.message}\n\nPlease try again or cancel setup.`,
       getSetupMenu()
@@ -948,6 +977,7 @@ bot.on('text', async ctx => {
     clearUserSetup(userId);
   }
 });
+
 
 // === BUTTON HANDLERS ===
 bot.action('main_menu', ctx => {

@@ -1667,7 +1667,12 @@ async function gracefulShutdown() {
 }
 
 // --- LAUNCH & SHUTDOWN ---
-async function startBot() {
+async function startBot() // Add this right after bot.launch() in startBot()
+if (process.env.NODE_ENV === 'production') {
+  const webhookUrl = `${process.env.RENDER_EXTERNAL_URL}/webhook`;
+  await bot.telegram.setWebhook(webhookUrl);
+  console.log(`🔗 Webhook registered: ${webhookUrl}`);
+} {
   try {
     const useWebhooks = process.env.NODE_ENV === 'production' && process.env.RENDER_EXTERNAL_URL;
 

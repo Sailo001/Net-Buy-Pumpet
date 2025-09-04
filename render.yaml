@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: net-buy-pumpet
+    env: node
+    plan: free
+    buildCommand: "npm install"
+    startCommand: "npm start"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN
+        sync: false
+      - key: WALLET_PRIVATE_KEYS
+        sync: false
+      - key: RPC_ENDPOINT
+        value: https://api.mainnet-beta.solana.com

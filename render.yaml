@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: solana-volume-bot
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+    healthCheckPath: /health
+    autoDeploy: true
+
+# Environment variables (set these in Render dashboard)
+# envVars:
+#   - key: TELEGRAM_BOT_TOKEN
+#     sync: false
+#   - key: TELEGRAM_USER_ID
+#     sync: false
+#   - key: SOLANA_WALLET_PRIVATE_KEY
+#     sync: false
+#   - key: SOLANA_RPC_URL
+#     value: https://api.mainnet-beta.solana.com

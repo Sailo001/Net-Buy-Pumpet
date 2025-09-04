@@ -1,5 +1,5 @@
 // index.js
-// Ensure your package.json has: { "type": "module" }
+// package.json must include: { "type": "module" }
 
 import 'dotenv/config';
 import { createRequire } from 'module';
@@ -26,9 +26,20 @@ import {
   createSyncNativeInstruction
 } from '@solana/spl-token';
 
+// ONLY import Raydium SDK here (avoid re-imports later)
 const { buildSwapInstruction } = require('@raydium-io/raydium-sdk');
 
-// === MEV PROTECTION CONFIGURATION ===
+/* =========================
+   Logger helpers (timestamps)
+========================= */
+const ts = () => new Date().toISOString();
+const log   = (...args) => console.log(`[${ts()}]`, ...args);
+const warn  = (...args) => console.warn(`[${ts()}] ⚠️`, ...args);
+const error = (...args) => console.error(`[${ts()}] 💥`, ...args);
+
+/* =========================
+   MEV / Trading configuration
+========================= */
 const MEV_CONFIG = {
   privatePools: [
     'https://mainnet.block-engine.jito.wtf',
@@ -37,14 +48,192 @@ const MEV_CONFIG = {
     'https://ny.mainnet.block-engine.jito.wtf',
     'https://tokyo.mainnet.block-engine.jito.wtf'
   ],
-  maxSlippage: { low: 0.5, medium: 1.0, high: 0.3 },
-  maxChunkSize: 0.5,
+  // Intentional: at higher MEV risk we use tighter (smaller) max slippage
+  maxSlippage: { low: 1.0, medium: 0.7, high: 0.3 },
+  maxChunkSize: 0.5,   // max SOL per chunk (fraction of total buy)
   minChunks: 2,
   maxChunks: 5,
-  minDelay: 100,
-  maxDelay: 3000,
+  minDelay: 100,       // ms
+  maxDelay: 3000,      // ms
   mevRiskThreshold: 0.7
 };
+
+/* =========================
+   ENV parsing & validation
+========================= */
+const {
+  BOT_TOKEN,
+  ADMIN,
+  RPC_ENDPOINT,
+  PAYER_PRIVATE_KEY,
+  WALLET_PRIVATE_KEYS,     // comma-separated or JSON array; optional
+  JITO_TIP,                // optional, integer lamports
+  NODE_ENV,
+  RENDER_EXTERNAL_URL,
+  PORT
+} = process.env;
+
+// Basic required envs
+const missing = [];
+if (!BOT_TOKEN)         missing.push('BOT_TOKEN');
+if (!ADMIN)             missing.push('ADMIN');
+if (!RPC_ENDPOINT)      missing.push('RPC_ENDPOINT');
+if (!PAYER_PRIVATE_KEY) missing.push('PAYER_PRIVATE_KEY');
+
+if (missing.length) {
+  const msg = `Missing required env var(s): ${missing.join(', ')}`;
+  error(msg);
+  throw new Error(msg);
+}
+
+const adminIdStr = String(ADMIN).trim();
+if (!/^\d+$/.test(adminIdStr)) {
+  const msg = `ADMIN must be a numeric Telegram user id. Got: "${ADMIN}"`;
+  error(msg);
+  throw new Error(msg);
+}
+
+// numeric optional envs
+const jitoTipLamports = (() => {
+  if (!JITO_TIP) return 0;
+  const n = Number(JITO_TIP);
+  if (!Number.isFinite(n) || n < 0) {
+    warn(`JITO_TIP invalid ("${JITO_TIP}"), defaulting to 0`);
+    return 0;
+  }
+  return Math.floor(n);
+})();
+
+// Port / mode
+const port = Number(PORT) || 3000;
+const useWebhooks = NODE_ENV === 'production' && !!RENDER_EXTERNAL_URL;
+
+/* =========================
+   Key parsing helpers
+========================= */
+function parseKeypair(input, label = 'PAYER_PRIVATE_KEY') {
+  // Accept bs58 string or JSON array of numbers
+  try {
+    // Try bs58
+    const secret = bs58.decode(input.trim());
+    if (secret.length === 64) {
+      const kp = Keypair.fromSecretKey(secret);
+      return kp;
+    }
+    // If it decoded but length unexpected, fall through to JSON path
+    warn(`${label} decoded via bs58 but secret length = ${secret.length} (expected 64). Trying JSON...`);
+  } catch (_) {
+    // ignore, try JSON route
+  }
+
+  try {
+    const arr = JSON.parse(input);
+    if (!Array.isArray(arr)) throw new Error('not an array');
+    const uint8 = Uint8Array.from(arr);
+    const kp = Keypair.fromSecretKey(uint8);
+    return kp;
+  } catch (e) {
+    const msg = `${label} is neither valid bs58 nor JSON array.`;
+    error(msg);
+    throw new Error(msg);
+  }
+}
+
+function parseMultiWallets(input) {
+  const wallets = [];
+  if (!input) return wallets;
+
+  // allow JSON array of arrays OR comma-separated bs58 keys
+  try {
+    const maybeJson = JSON.parse(input);
+    if (Array.isArray(maybeJson)) {
+      for (const item of maybeJson) {
+        try {
+          const kp = Array.isArray(item)
+            ? Keypair.fromSecretKey(Uint8Array.from(item))
+            : parseKeypair(item, 'WALLET_PRIVATE_KEYS[]');
+          wallets.push(kp);
+        } catch (e) {
+          warn('Skipping invalid wallet key in JSON list:', e.message);
+        }
+      }
+      return wallets;
+    }
+  } catch (_) {
+    // not JSON, treat as comma-separated list
+  }
+
+  const parts = input.split(',').map(s => s.trim()).filter(Boolean);
+  for (const p of parts) {
+    try {
+      wallets.push(parseKeypair(p, 'WALLET_PRIVATE_KEYS item'));
+    } catch (e) {
+      warn('Skipping invalid wallet key in CSV list:', e.message);
+    }
+  }
+  return wallets;
+}
+
+/* =========================
+   Core singletons
+========================= */
+const rpcEndpoint = RPC_ENDPOINT.trim();
+const connection = new Connection(rpcEndpoint, 'confirmed');
+
+const payer = parseKeypair(PAYER_PRIVATE_KEY, 'PAYER_PRIVATE_KEY');
+
+const extraWallets = parseMultiWallets(WALLET_PRIVATE_KEYS);
+log(`🎭 Multi-wallet system loaded: ${extraWallets.length + 1} wallets`);
+
+// Telegraf bot — single instance
+const bot = new Telegraf(BOT_TOKEN, {
+  handlerTimeout: 90_000 // ms
+});
+
+// Basic in-memory session/state (replace if you add Redis later)
+const session = {
+  mint: null,
+  buySol: 0.1,
+  sellPct: 0,
+  delaySec: 5,
+  multiBuys: 1,
+  buyScale: 1.0,
+  mevProtection: true,
+  multiWallet: extraWallets.length > 0
+};
+
+let running = false;
+let isShuttingDown = false;
+
+// Simple setup wizard tracking
+const SETUP_STEPS = {
+  WAITING_CONTRACT: 'waiting_contract',
+  WAITING_SOL_AMOUNT: 'waiting_sol_amount',
+  WAITING_SELL_PCT: 'waiting_sell_pct',
+  WAITING_DELAY: 'waiting_delay',
+  WAITING_MULTI_BUYS: 'waiting_multi_buys',
+  CONFIRMATION: 'confirmation'
+};
+
+const setupFlow = {
+  users: new Map(), // userId -> step
+  data:  new Map()  // userId -> partial config object
+};
+
+function getCurrentStep(userId) {
+  return setupFlow.users.get(userId);
+}
+function setUserStep(userId, step) {
+  setupFlow.users.set(userId, step);
+}
+function getUserData(userId) {
+  if (!setupFlow.data.has(userId)) setupFlow.data.set(userId, {});
+  return setupFlow.data.get(userId);
+}
+function clearUserSetup(userId) {
+  setupFlow.users.delete(userId);
+  setupFlow.data.delete(userId);
+  }
 
 // === BASIC CONFIGURATION ===
 const {

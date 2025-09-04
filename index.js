@@ -701,57 +701,110 @@ log(`🎭 Multi-wallet orchestrator ready — ${multiWallet.getActiveWallets().l
   
       
 // === BASIC HELPER FUNCTIONS ===
+// === BASIC HELPER FUNCTIONS (improved with logs + validation) ===
+
 async function getRaydiumPoolInfo(mintAddress) {
-  const url = 'https://api.raydium.io/v2/sdk/liquidity/mainnet.json';
-  const pools = await fetch(url).then(r => r.json());
-  for (const sid in pools.official) {
-    const pool = pools.official[sid];
-    if (pool.baseMint === mintAddress || pool.quoteMint === mintAddress) {
-      pool.id = sid;
-      return pool;
-    }
+  if (!mintAddress || typeof mintAddress !== 'string') {
+    throw new Error('getRaydiumPoolInfo: mintAddress must be a non-empty string');
   }
-  for (const sid in pools.unOfficial) {
-    const pool = pools.unOfficial[sid];
-    if (pool.baseMint === mintAddress || pool.quoteMint === mintAddress) {
-      pool.id = sid;
-      return pool;
+
+  try {
+    log(`🌐 Fetching Raydium pools for mint: ${mintAddress.slice(0, 8)}...`);
+
+    const url = 'https://api.raydium.io/v2/sdk/liquidity/mainnet.json';
+    const pools = await Promise.race([
+      fetch(url).then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }),
+      new Promise((_, rej) =>
+        setTimeout(() => rej(new Error('Timeout fetching Raydium pools')), 8000)
+      )
+    ]);
+
+    // Search official pools first
+    for (const sid in pools.official) {
+      const pool = pools.official[sid];
+      if (pool.baseMint === mintAddress || pool.quoteMint === mintAddress) {
+        pool.id = sid;
+        log(`✅ Found official Raydium pool: ${sid}`);
+        return pool;
+      }
     }
+
+    // Then unofficial pools
+    for (const sid in pools.unOfficial) {
+      const pool = pools.unOfficial[sid];
+      if (pool.baseMint === mintAddress || pool.quoteMint === mintAddress) {
+        pool.id = sid;
+        log(`✅ Found unofficial Raydium pool: ${sid}`);
+        return pool;
+      }
+    }
+
+    throw new Error(`No Raydium pool found for mint: ${mintAddress}`);
+  } catch (err) {
+    error('❌ getRaydiumPoolInfo failed:', err.message || err);
+    throw err;
   }
-  throw new Error('No Raydium pool found for mint: ' + mintAddress);
 }
 
 async function getATA(mint, owner) {
-  return await getAssociatedTokenAddress(
-    new PublicKey(mint),
-    owner,
-    false,
-    TOKEN_PROGRAM_ID,
-    ASSOCIATED_TOKEN_PROGRAM_ID
-  );
+  if (!mint || !owner) {
+    throw new Error('getATA: mint and owner are required');
+  }
+
+  try {
+    return await getAssociatedTokenAddress(
+      new PublicKey(mint),
+      owner,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+  } catch (err) {
+    error('❌ Failed to compute ATA:', err.message || err);
+    throw err;
+  }
 }
 
 async function ensureATA(mint, owner) {
-  const ata = await getATA(mint, owner);
-  const info = await connection.getAccountInfo(ata);
-  if (!info) {
-    const tx = new Transaction().add(
-      createAssociatedTokenAccountInstruction(
-        payer.publicKey,
-        ata,
-        owner,
-        new PublicKey(mint),
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
-    );
-    await connection.sendTransaction(tx, [payer], {
-      skipPreflight: false,
-      preflightCommitment: 'confirmed'
-    });
+  if (!mint || !owner) {
+    throw new Error('ensureATA: mint and owner are required');
   }
-  return ata;
-}
+
+  try {
+    const ata = await getATA(mint, owner);
+    const info = await connection.getAccountInfo(ata);
+
+    if (!info) {
+      log(`🧩 Creating ATA for mint ${mint.slice(0, 8)}... and owner ${owner.toString().slice(0, 8)}...`);
+      const tx = new Transaction().add(
+        createAssociatedTokenAccountInstruction(
+          payer.publicKey,
+          ata,
+          owner,
+          new PublicKey(mint),
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        )
+      );
+
+      const sig = await connection.sendTransaction(tx, [payer], {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed'
+      });
+      log(`✅ ATA created. Tx: ${sig}`);
+    } else {
+      log(`ℹ️ ATA already exists for mint ${mint.slice(0, 8)}...`);
+    }
+
+    return ata;
+  } catch (err) {
+    error('❌ ensureATA failed:', err.message || err);
+    throw err;
+  }
+                      }
 
 // === MEV-PROTECTED TRADING FUNCTIONS ===
 async function sendPrivateTransaction(transaction, tip = 10000) {

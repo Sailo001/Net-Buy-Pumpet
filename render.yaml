@@ -1,0 +1,33 @@
+# Render Blueprint configuration for Solana Volume Bot
+services:
+  - type: web
+    name: solana-volume-bot
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: LOG_LEVEL
+        value: info
+      - key: DEFAULT_SOL_AMOUNT
+        value: 0.1
+      - key: DEFAULT_DURATION
+        value: 60
+      - key: DEFAULT_INTERVAL
+        value: 30
+      - key: SLIPPAGE_BPS
+        value: 100
+    healthCheckPath: /health
+    autoDeploy: true
+
+# Environment variables that need to be set in Render Dashboard:
+# TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+# TELEGRAM_USER_ID=your_telegram_user_id
+# SOLANA_WALLET_PRIVATE_KEY=[123,456,789,...] (as JSON array)
+# SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+# JUPITER_API_URL=https://quote-api.jup.ag/v6
+# DEFAULT_TOKEN_ADDRESS=your_default_token_address_here

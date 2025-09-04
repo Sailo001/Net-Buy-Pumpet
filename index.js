@@ -1352,8 +1352,17 @@ function getSetupSummary(userData) {
   ].join('\n');
                                            }
 // === TELEGRAM HANDLERS ===
+// === TELEGRAM HANDLERS WITH LOGGING & VALIDATION ===
+
+// START
 bot.start(ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
+  const userId = ctx.from.id.toString();
+  console.log(`📩 /start called by user ${userId} (${ctx.from.username || 'no username'})`);
+
+  if (userId !== ADMIN) {
+    console.warn(`⛔ Unauthorized /start attempt by ${userId}`);
+    return;
+  }
 
   const welcomeMsg = [
     '🤖 **Welcome to Net-Buy-Pumpet!**',
@@ -1373,11 +1382,20 @@ bot.start(ctx => {
   ctx.reply(welcomeMsg, { ...getMainMenu(), parse_mode: 'Markdown' });
 });
 
+// SETUP
 bot.command('setup', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
+  const userId = ctx.from.id.toString();
+  console.log(`📩 /setup called by user ${userId}`);
 
-  clearUserSetup(ctx.from.id);
-  setUserStep(ctx.from.id, SETUP_STEPS.WAITING_CONTRACT);
+  if (userId !== ADMIN) {
+    console.warn(`⛔ Unauthorized /setup attempt by ${userId}`);
+    return;
+  }
+
+  clearUserSetup(userId);
+  setUserStep(userId, SETUP_STEPS.WAITING_CONTRACT);
+
+  console.log(`🔧 User ${userId} entered setup. Step set to WAITING_CONTRACT`);
 
   ctx.reply(
     '🔧 **Pump Setup - Step 1/5**\n\n' +
@@ -1388,8 +1406,15 @@ bot.command('setup', ctx => {
   );
 });
 
+// STATUS
 bot.command('status', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
+  const userId = ctx.from.id.toString();
+  console.log(`📩 /status called by user ${userId}`);
+
+  if (userId !== ADMIN) {
+    console.warn(`⛔ Unauthorized /status attempt by ${userId}`);
+    return;
+  }
 
   const statusMsg = [
     showCurrentConfig(),
@@ -1402,8 +1427,15 @@ bot.command('status', ctx => {
   ctx.reply(statusMsg, { ...getStatusMenu(), parse_mode: 'Markdown' });
 });
 
+// ADVANCED
 bot.command('advanced', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
+  const userId = ctx.from.id.toString();
+  console.log(`📩 /advanced called by user ${userId}`);
+
+  if (userId !== ADMIN) {
+    console.warn(`⛔ Unauthorized /advanced attempt by ${userId}`);
+    return;
+  }
 
   const advancedMsg = [
     '🛡️ **Advanced Features Control**',
@@ -1418,11 +1450,18 @@ bot.command('advanced', ctx => {
   ctx.reply(advancedMsg, { ...getAdvancedMenu(), parse_mode: 'Markdown' });
 });
 
+// HELP
 bot.command('help', ctx => {
-  if (ctx.from.id.toString() !== ADMIN) return;
+  const userId = ctx.from.id.toString();
+  console.log(`📩 /help called by user ${userId}`);
+
+  if (userId !== ADMIN) {
+    console.warn(`⛔ Unauthorized /help attempt by ${userId}`);
+    return;
+  }
 
   const helpMsg = [
-    '�� **Net-Buy-Pumpet Help**',
+    '📖 **Net-Buy-Pumpet Help**',
     '',
     '🚀 **Bot Commands:**',
     '• `/start` - Main dashboard',

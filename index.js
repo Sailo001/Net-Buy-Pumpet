@@ -402,181 +402,304 @@ const mevProtection = new MEVProtection();
     
 
 // === MULTI-WALLET ORCHESTRATION ===
+// === MULTI-WALLET ORCHESTRATION (improved) ===
 class MultiWalletOrchestrator {
-  constructor() {
+  constructor(keysEnv) {
     this.wallets = [];
-    this.loadWallets();
+    this.loadWallets(keysEnv);
   }
 
-  loadWallets() {
-    this.wallets.push({
-      keypair: payer,
-      role: 'main',
-      active: true,
-      balance: 0
-    });
-    if (WALLET_KEYS) {
-      const keys = WALLET_KEYS.split(',').map(k => k.trim());
-      keys.forEach((key, index) => {
-        try {
-          const keypair = Keypair.fromSecretKey(bs58.decode(key));
-          this.wallets.push({
-            keypair,
-            role: `wallet_${index + 1}`,
-            active: true,
-            balance: 0
-          });
-          console.log(`✅ Loaded wallet ${index + 1}: ${keypair.publicKey.toString().slice(0, 8)}...`);
-        } catch (err) {
-          console.error(`❌ Failed to load wallet ${index + 1}:`, err.message);
-        }
+  loadWallets(keysEnv) {
+    try {
+      // Always include the main payer as the first wallet
+      this.wallets.push({
+        keypair: payer,
+        role: 'main',
+        active: true,
+        balance: 0
       });
+      log('💼 Main payer wallet added:', payer.publicKey.toString());
+
+      if (!keysEnv) {
+        log('ℹ️ No WALLET_KEYS provided — running single-wallet mode.');
+      } else {
+        const keys = keysEnv.split(',').map(k => k.trim()).filter(Boolean);
+        for (let i = 0; i < keys.length; i++) {
+          const raw = keys[i];
+          try {
+            const secret = bs58.decode(raw);
+            if (secret.length !== 64) {
+              warn(`Wallet key #${i + 1} decoded but unexpected secret length=${secret.length}; skipping.`);
+              continue;
+            }
+            const keypair = Keypair.fromSecretKey(secret);
+            this.wallets.push({
+              keypair,
+              role: `wallet_${i + 1}`,
+              active: true,
+              balance: 0
+            });
+            log(`✅ Loaded wallet ${i + 1}: ${keypair.publicKey.toString().slice(0, 8)}...`);
+          } catch (err) {
+            warn(`❌ Failed to load wallet #${i + 1} (skipping):`, err.message || err);
+            continue;
+          }
+        }
+      }
+
+      log(`🎭 Multi-wallet system initialized: ${this.wallets.length} wallets (active: ${this.getActiveWallets().length})`);
+    } catch (err) {
+      error('💥 Unexpected error while loading wallets:', err);
+      // Ensure at least the payer exists
+      if (this.wallets.length === 0) {
+        this.wallets.push({
+          keypair: payer,
+          role: 'main',
+          active: true,
+          balance: 0
+        });
+        log('⚠️ Fallback: added payer as single wallet.');
+      }
     }
-    console.log(`🎭 Multi-wallet system loaded: ${this.wallets.length} wallets`);
   }
 
   getActiveWallets() {
-    return this.wallets.filter(w => w.active);
+    return this.wallets.filter(w => w && w.active);
   }
 
   distributeAmount(totalAmount, walletCount = null) {
-    const activeWallets = this.getActiveWallets();
-    const walletsToUse = walletCount || Math.min(activeWallets.length, 3);
+    const active = this.getActiveWallets();
+    const walletsToUse = walletCount || Math.min(active.length, 3);
+    if (walletsToUse <= 0) return [];
+
     const amounts = [];
     let remaining = totalAmount;
+
+    // Create (walletsToUse - 1) random splits and place remainder in last
     for (let i = 0; i < walletsToUse - 1; i++) {
+      // keep the split reasonable (20% - 40%)
       const percentage = 0.2 + Math.random() * 0.2;
-      const amount = remaining * percentage;
+      const amount = +(remaining * percentage).toFixed(8);
       amounts.push(amount);
       remaining -= amount;
     }
-    amounts.push(remaining);
-    return amounts.sort(() => Math.random() - 0.5);
+    amounts.push(+remaining.toFixed(8));
+    // shuffle to avoid predictable ordering
+    for (let i = amounts.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [amounts[i], amounts[j]] = [amounts[j], amounts[i]];
+    }
+    log('🔀 Distributed amounts across wallets:', amounts);
+    return amounts;
   }
 
   generateNaturalDelays(count) {
-    return Array(count).fill().map(() => {
+    if (count <= 0) return [];
+    const delays = Array.from({ length: count }, () => {
       const baseDelay = 500 + Math.random() * 7500;
       const clustering = Math.random() < 0.3 ? Math.random() * 2000 : 0;
       return Math.floor(baseDelay + clustering);
     });
+    log('⏱️ Natural delays generated (ms):', delays);
+    return delays;
   }
 
   async executeCoordinatedBuy(mint, totalAmount, protection = true) {
-    const activeWallets = this.getActiveWallets();
-    const walletsToUse = Math.min(activeWallets.length, 3);
+    const active = this.getActiveWallets();
+    const walletsToUse = Math.min(active.length, 3);
+    if (walletsToUse <= 0) {
+      throw new Error('No active wallets available for coordinated buy');
+    }
+
     const amounts = this.distributeAmount(totalAmount, walletsToUse);
     const delays = this.generateNaturalDelays(walletsToUse - 1);
-    console.log(`🎭 Coordinated buy: ${walletsToUse} wallets, ${totalAmount} SOL total`);
+
+    log(`🎭 Coordinated buy start — wallets:${walletsToUse}, total:${totalAmount} SOL, protection:${!!protection}`);
+
     const results = [];
+
     for (let i = 0; i < walletsToUse; i++) {
+      const walletObj = active[i];
+      const amount = amounts[i];
+
+      if (!walletObj || !walletObj.keypair) {
+        warn(`⚠️ Skipping missing wallet at index ${i}`);
+        results.push({ wallet: `unknown_${i}`, amount, error: 'Missing wallet' });
+        continue;
+      }
+
       try {
-        const wallet = activeWallets[i];
-        const amount = amounts[i];
-        console.log(`🔄 Wallet ${i + 1} buying ${amount.toFixed(4)} SOL...`);
-        const tx = await this.executeBuyWithWallet(wallet, mint, amount, protection);
-        results.push({ wallet: wallet.role, amount, tx });
-        if (i < walletsToUse - 1) {
-          await new Promise(resolve => setTimeout(resolve, delays[i]));
-        }
+        log(`🔄 [Wallet ${i + 1}] ${walletObj.keypair.publicKey.toString().slice(0,8)} buying ${amount} SOL`);
+        const tx = await this.executeBuyWithWallet(walletObj, mint, amount, protection);
+        results.push({ wallet: walletObj.role, amount, tx });
+        log(`✅ [Wallet ${i + 1}] buy result:`, tx);
       } catch (err) {
-        console.error(`❌ Wallet ${i + 1} buy failed:`, err.message);
-        results.push({ wallet: activeWallets[i].role, amount: amounts[i], error: err.message });
+        error(`❌ [Wallet ${i + 1}] buy failed:`, err && err.message ? err.message : err);
+        results.push({ wallet: walletObj.role, amount, error: err && err.message ? err.message : String(err) });
+      }
+
+      if (i < walletsToUse - 1) {
+        const d = delays[i] || 1000;
+        log(`⏳ Waiting ${d}ms before next wallet buy`);
+        await new Promise(res => setTimeout(res, d));
       }
     }
+
+    log('🎭 Coordinated buy finished. Summary:', results);
     return results;
   }
 
   async executeBuyWithWallet(walletObj, mint, solAmount, mevProtection = true) {
-    const pool = await getRaydiumPoolInfo(mint);
-    const buyingBase = (pool.baseMint === mint);
+    if (!mint) throw new Error('executeBuyWithWallet: mint is required');
+    if (!walletObj || !walletObj.keypair) throw new Error('executeBuyWithWallet: invalid wallet object');
+
+    // 1) fetch pool (with a short timeout wrapper)
+    let pool;
+    try {
+      log('🌐 Fetching Raydium pool info for', mint);
+      pool = await Promise.race([
+        getRaydiumPoolInfo(mint),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('getRaydiumPoolInfo timeout (8s)')), 8000))
+      ]);
+      if (!pool) throw new Error('No pool found');
+      log('✅ Pool found:', pool.id || '(no id)', pool.baseMint === mint ? 'base' : 'quote');
+    } catch (err) {
+      throw new Error(`Failed to get pool for mint ${mint}: ${err.message || err}`);
+    }
+
     const WSOL = 'So11111111111111111111111111111111111111112';
     const wallet = walletObj.keypair;
-    const userWSOL = await getAssociatedTokenAddress(
-      new PublicKey(WSOL),
-      wallet.publicKey,
-      false,
-      TOKEN_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID
-    );
     const amountIn = Math.floor(solAmount * LAMPORTS_PER_SOL);
-    const wsolInfo = await connection.getAccountInfo(userWSOL);
-    if (!wsolInfo) {
-      const createTx = new Transaction().add(
-        createAssociatedTokenAccountInstruction(
-          wallet.publicKey,
-          userWSOL,
-          wallet.publicKey,
-          new PublicKey(WSOL),
-          TOKEN_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        )
+    if (amountIn <= 0) throw new Error('Amount too small');
+
+    // 2) ensure WSOL ATA exists
+    let userWSOL;
+    try {
+      userWSOL = await getAssociatedTokenAddress(new PublicKey(WSOL), wallet.publicKey, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+    } catch (err) {
+      throw new Error('Failed to compute WSOL ATA: ' + (err.message || err));
+    }
+
+    try {
+      const wsolInfo = await connection.getAccountInfo(userWSOL);
+      if (!wsolInfo) {
+        log('🧩 Creating WSOL ATA for wallet', wallet.publicKey.toString().slice(0,8));
+        const createTx = new Transaction().add(
+          createAssociatedTokenAccountInstruction(
+            wallet.publicKey,
+            userWSOL,
+            wallet.publicKey,
+            new PublicKey(WSOL),
+            TOKEN_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID
+          )
+        );
+        await connection.sendTransaction(createTx, [wallet]);
+        log('✅ WSOL ATA created');
+      }
+    } catch (err) {
+      throw new Error('Failed ensuring WSOL ATA: ' + (err.message || err));
+    }
+
+    // 3) wrap SOL (transfer lamports into WSOL ATA) and sync
+    try {
+      log(`💸 Wrapping ${solAmount} SOL -> ${amountIn} lamports for wallet ${wallet.publicKey.toString().slice(0,8)}`);
+      const wrapTx = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: wallet.publicKey,
+          toPubkey: userWSOL,
+          lamports: amountIn
+        }),
+        createSyncNativeInstruction(userWSOL)
       );
-      await connection.sendTransaction(createTx, [wallet]);
+
+      if (mevProtection) {
+        log('🛡️ Sending wrap using private transaction (MEV protection)');
+        await sendPrivateTransactionWithWallet(wrapTx, wallet);
+      } else {
+        await connection.sendTransaction(wrapTx, [wallet]);
+      }
+      log('✅ Wrapped SOL completed');
+    } catch (err) {
+      throw new Error('Failed to wrap SOL: ' + (err.message || err));
     }
-    const wrapTx = new Transaction().add(
-      SystemProgram.transfer({
-        fromPubkey: wallet.publicKey,
-        toPubkey: userWSOL,
-        lamports: amountIn
-      }),
-      createSyncNativeInstruction(userWSOL)
-    );
-    if (mevProtection) {
-      await sendPrivateTransactionWithWallet(wrapTx, wallet);
-    } else {
-      await connection.sendTransaction(wrapTx, [wallet]);
+
+    // 4) ensure output ATA exists
+    const toMint = (pool.baseMint === mint) ? mint : WSOL;
+    let userOutATA;
+    try {
+      userOutATA = await getAssociatedTokenAddress(new PublicKey(toMint), wallet.publicKey, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+      const outInfo = await connection.getAccountInfo(userOutATA);
+      if (!outInfo) {
+        log('🧩 Creating output ATA for mint:', toMint);
+        const createOutTx = new Transaction().add(
+          createAssociatedTokenAccountInstruction(
+            wallet.publicKey,
+            userOutATA,
+            wallet.publicKey,
+            new PublicKey(toMint),
+            TOKEN_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID
+          )
+        );
+        await connection.sendTransaction(createOutTx, [wallet]);
+        log('✅ Output ATA created');
+      }
+    } catch (err) {
+      throw new Error('Failed ensuring output ATA: ' + (err.message || err));
     }
-    const toMint = buyingBase ? mint : WSOL;
-    const userOutATA = await getAssociatedTokenAddress(
-      new PublicKey(toMint),
-      wallet.publicKey,
-      false,
-      TOKEN_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID
-    );
-    const outInfo = await connection.getAccountInfo(userOutATA);
-    if (!outInfo) {
-      const createOutTx = new Transaction().add(
-        createAssociatedTokenAccountInstruction(
-          wallet.publicKey,
-          userOutATA,
-          wallet.publicKey,
-          new PublicKey(toMint),
-          TOKEN_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        )
-      );
-      await connection.sendTransaction(createOutTx, [wallet]);
-    }
-    const swapIx = await buildSwapInstruction({
-      poolKeys: pool,
-      userKeys: {
-        tokenAccountIn: userWSOL,
-        tokenAccountOut: userOutATA,
-        owner: wallet.publicKey,
-        payer: wallet.publicKey
-      },
-      amountIn,
-      minAmountOut: 1,
-      direction: buyingBase ? 'quote2base' : 'base2quote'
-    });
-    const swapTx = new Transaction();
-    swapIx.innerTransactions.forEach(({ instructions }) =>
-      instructions.forEach(ix => swapTx.add(ix))
-    );
-    if (mevProtection) {
-      return await sendPrivateTransactionWithWallet(swapTx, wallet);
-    } else {
-      return await connection.sendTransaction(swapTx, [wallet]);
+
+    // 5) build swap instruction and execute
+    try {
+      log('🔁 Building Raydium swap instruction...');
+      const swapIx = await buildSwapInstruction({
+        poolKeys: pool,
+        userKeys: {
+          tokenAccountIn: userWSOL,
+          tokenAccountOut: userOutATA,
+          owner: wallet.publicKey,
+          payer: wallet.publicKey
+        },
+        amountIn,
+        minAmountOut: 1,
+        direction: pool.baseMint === mint ? 'quote2base' : 'base2quote'
+      });
+
+      const swapTx = new Transaction();
+      if (swapIx && Array.isArray(swapIx.innerTransactions)) {
+        swapIx.innerTransactions.forEach(({ instructions }) =>
+          instructions.forEach(ix => swapTx.add(ix))
+        );
+      } else if (swapIx && swapIx.instructions) {
+        swapIx.instructions.forEach(ix => swapTx.add(ix));
+      } else {
+        // If Raydium SDK shape differs, still try to add top-level instructions
+        if (swapIx && swapIx.length) {
+          swapIx.forEach(ix => swapTx.add(ix));
+        }
+      }
+
+      // send
+      log('🚀 Sending swap transaction (mevProtection=' + !!mevProtection + ')');
+      if (mevProtection) {
+        return await sendPrivateTransactionWithWallet(swapTx, wallet);
+      } else {
+        return await connection.sendTransaction(swapTx, [wallet]);
+      }
+    } catch (err) {
+      throw new Error('Swap execution failed: ' + (err.message || err));
     }
   }
 }
 
-// Initialize classes
+// Initialize singletons
 const mevProtection = new MEVProtection();
-const multiWallet = new MultiWalletOrchestrator();
+const multiWallet = new MultiWalletOrchestrator(WALLET_KEYS);
+log(`🎭 Multi-wallet orchestrator ready — ${multiWallet.getActiveWallets().length} active wallets.`);
 
+  
+  
+      
 // === BASIC HELPER FUNCTIONS ===
 async function getRaydiumPoolInfo(mintAddress) {
   const url = 'https://api.raydium.io/v2/sdk/liquidity/mainnet.json';

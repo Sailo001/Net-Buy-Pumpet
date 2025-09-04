@@ -807,124 +807,251 @@ async function ensureATA(mint, owner) {
                       }
 
 // === MEV-PROTECTED TRADING FUNCTIONS ===
+// === MEV-PROTECTED TRADING FUNCTIONS (hardened + logged) ===
+
+/**
+ * Helper: fetch with timeout (node-fetch)
+ */
+async function fetchWithTimeout(url, opts = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...opts, signal: controller.signal });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    throw err;
+  }
+}
+
+/**
+ * Send transaction via Jito private pool, fallback to public RPC.
+ * Returns signature string on success (or result from Jito).
+ */
 async function sendPrivateTransaction(transaction, tip = 10000) {
   try {
-    const tipAmount = parseInt(JITO_TIP) || tip;
+    const tipAmount = Number(JITO_TIP) || tip;
     if (tipAmount > 0) {
-      const tipInstruction = SystemProgram.transfer({
-        fromPubkey: payer.publicKey,
-        toPubkey: new PublicKey('96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'),
-        lamports: tipAmount
-      });
-      transaction.add(tipInstruction);
+      try {
+        const tipInstruction = SystemProgram.transfer({
+          fromPubkey: payer.publicKey,
+          toPubkey: new PublicKey('96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'),
+          lamports: tipAmount
+        });
+        transaction.add(tipInstruction);
+      } catch (e) {
+        warn('Could not add tip instruction:', e.message || e);
+      }
     }
+
     const jitoEndpoint = MEV_CONFIG.privatePools[Math.floor(Math.random() * MEV_CONFIG.privatePools.length)];
+    log('🚀 Attempting to send via Jito endpoint:', jitoEndpoint);
+
     try {
-      const response = await fetch(`${jitoEndpoint}/api/v1/transactions`, {
+      const payload = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'sendTransaction',
+        params: [
+          transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+          { skipPreflight: false, preflightCommitment: 'confirmed' }
+        ]
+      };
+
+      const resp = await fetchWithTimeout(`${jitoEndpoint}/api/v1/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'sendTransaction',
-          params: [
-            transaction.serialize({ requireAllSignatures: false }).toString('base64'),
-            { skipPreflight: false, preflightCommitment: 'confirmed' }
-          ]
-        })
-      });
-      const result = await response.json();
-      if (result.result) {
-        console.log('✅ Transaction sent via Jito private pool');
-        return result.result;
+        body: JSON.stringify(payload)
+      }, 8000);
+
+      if (!resp.ok) {
+        warn('Jito responded with non-OK status:', resp.status);
+        throw new Error(`Jito HTTP ${resp.status}`);
       }
-    } catch (jitoError) {
-      console.log('⚠️ Jito failed, falling back to public RPC');
+
+      const result = await resp.json();
+      if (result?.result) {
+        log('✅ Transaction accepted via Jito:', result.result);
+        return result.result;
+      } else {
+        warn('⚠️ Jito returned no result, falling back', result);
+        throw new Error('Jito returned no result');
+      }
+    } catch (jitoErr) {
+      warn('⚠️ Jito send failed, falling back to RPC:', jitoErr.message || jitoErr);
     }
-    return await connection.sendTransaction(transaction, [payer], {
+
+    // fallback to connection.sendTransaction
+    log('📡 Sending via public RPC (connection.sendTransaction)...');
+    const sig = await connection.sendTransaction(transaction, [payer], {
       skipPreflight: false,
       preflightCommitment: 'confirmed'
     });
+    log('✅ Sent via RPC, sig:', sig);
+    return sig;
   } catch (err) {
-    console.error('Private transaction failed:', err);
+    error('💥 sendPrivateTransaction failed:', err);
     throw err;
   }
 }
 
+/**
+ * Same as above but signs with provided wallet Keypair
+ */
 async function sendPrivateTransactionWithWallet(transaction, wallet, tip = 10000) {
   try {
-    const tipAmount = parseInt(JITO_TIP) || tip;
+    const tipAmount = Number(JITO_TIP) || tip;
     if (tipAmount > 0) {
-      const tipInstruction = SystemProgram.transfer({
-        fromPubkey: wallet.publicKey,
-        toPubkey: new PublicKey('96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'),
-        lamports: tipAmount
-      });
-      transaction.add(tipInstruction);
+      try {
+        const tipInstruction = SystemProgram.transfer({
+          fromPubkey: wallet.publicKey,
+          toPubkey: new PublicKey('96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5'),
+          lamports: tipAmount
+        });
+        transaction.add(tipInstruction);
+      } catch (e) {
+        warn('Could not add tip instruction (wallet):', e.message || e);
+      }
     }
+
     const jitoEndpoint = MEV_CONFIG.privatePools[Math.floor(Math.random() * MEV_CONFIG.privatePools.length)];
+    log('🚀 Attempting wallet send via Jito endpoint:', jitoEndpoint);
+
     try {
-      const response = await fetch(`${jitoEndpoint}/api/v1/transactions`, {
+      const payload = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'sendTransaction',
+        params: [
+          transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+          { skipPreflight: false, preflightCommitment: 'confirmed' }
+        ]
+      };
+
+      const resp = await fetchWithTimeout(`${jitoEndpoint}/api/v1/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'sendTransaction',
-          params: [
-            transaction.serialize({ requireAllSignatures: false }).toString('base64'),
-            { skipPreflight: false, preflightCommitment: 'confirmed' }
-          ]
-        })
-      });
-      const result = await response.json();
-      if (result.result) return result.result;
-    } catch (jitoError) {
-      console.log('⚠️ Jito failed for wallet, using public RPC');
+        body: JSON.stringify(payload)
+      }, 8000);
+
+      if (!resp.ok) {
+        warn('Jito wallet send responded non-OK:', resp.status);
+        throw new Error(`Jito wallet HTTP ${resp.status}`);
+      }
+
+      const result = await resp.json();
+      if (result?.result) {
+        log('✅ Wallet transaction accepted via Jito:', result.result);
+        return result.result;
+      } else {
+        warn('⚠️ Jito wallet returned no result, falling back', result);
+        throw new Error('Jito wallet returned no result');
+      }
+    } catch (jitoErr) {
+      warn('⚠️ Jito wallet send failed, falling back to RPC:', jitoErr.message || jitoErr);
     }
-    return await connection.sendTransaction(transaction, [wallet], {
+
+    // fallback to connection.sendTransaction with wallet
+    log('📡 Sending wallet tx via public RPC (connection.sendTransaction)...');
+    const sig = await connection.sendTransaction(transaction, [wallet], {
       skipPreflight: false,
       preflightCommitment: 'confirmed'
     });
+    log('✅ Wallet tx sent via RPC, sig:', sig);
+    return sig;
   } catch (err) {
-    console.error('Private wallet transaction failed:', err);
+    error('💥 sendPrivateTransactionWithWallet failed:', err);
     throw err;
   }
 }
 
+/**
+ * MEV-protected buy (splits + delay) — returns array of tx signatures (or values returned by send functions)
+ */
 async function buyTokenMEVProtected(mint, solAmount) {
-  console.log(`🛡️ Starting MEV-protected buy for ${solAmount} SOL`);
+  if (!mint) throw new Error('buyTokenMEVProtected: mint required');
+  if (!Number.isFinite(solAmount) || solAmount <= 0) throw new Error('buyTokenMEVProtected: invalid solAmount');
+
+  log(`🛡️ Starting MEV-protected buy: ${solAmount} SOL for ${mint}`);
   const mevAnalysis = await mevProtection.detectMEVActivity(mint);
-  const protection = mevAnalysis.recommendation;
-  console.log(`🔍 MEV Risk: ${mevAnalysis.riskScore.toFixed(2)} (${protection} protection)`);
+  const protection = mevAnalysis.recommendation || 'medium';
+  log(`🔍 MEV risk ${mevAnalysis.riskScore} => ${protection}`);
+
   const chunks = mevProtection.splitTransaction(solAmount, protection);
-  const delays = mevProtection.generateDelays(chunks.length - 1, protection);
+  const delays = mevProtection.generateDelays(Math.max(0, chunks.length - 1), protection);
+
   const results = [];
   for (let i = 0; i < chunks.length; i++) {
     try {
-      console.log(`🔄 Executing chunk ${i + 1}/${chunks.length}: ${chunks[i].toFixed(4)} SOL`);
-      const tx = await buyTokenSingle(mint, chunks[i]);
+      const chunk = chunks[i];
+      log(`🔄 Executing chunk ${i + 1}/${chunks.length}: ${chunk.toFixed(6)} SOL`);
+      const tx = await buyTokenSingle(mint, chunk);
       results.push(tx);
-      console.log(`✅ Chunk ${i + 1} completed: ${tx}`);
-      if (i < chunks.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, delays[i]));
-      }
+      log(`✅ Chunk ${i + 1} done: ${tx}`);
     } catch (err) {
-      console.error(`❌ Chunk ${i + 1} failed:`, err.message);
+      error(`❌ Chunk ${i + 1} failed:`, err.message || err);
+      results.push({ error: err.message || String(err) });
+    }
+
+    if (i < delays.length) {
+      const d = delays[i];
+      log(`⏳ Waiting ${d}ms before next chunk`);
+      await new Promise(r => setTimeout(r, d));
     }
   }
+
   return results;
 }
 
+/**
+ * Single buy: ensures ATAs, wraps SOL (if necessary), builds swap, sends tx.
+ * Returns signature or throw.
+ */
 async function buyTokenSingle(mint, solAmount) {
-  const pool = await getRaydiumPoolInfo(mint);
+  if (!mint) throw new Error('buyTokenSingle: mint required');
+  if (!Number.isFinite(solAmount) || solAmount <= 0) throw new Error('buyTokenSingle: invalid solAmount');
+
+  log(`🔎 buyTokenSingle: mint=${mint}, sol=${solAmount}`);
+
+  // 1) get pool info (with timeout via wrapper already used)
+  const pool = await Promise.race([
+    getRaydiumPoolInfo(mint),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('getRaydiumPoolInfo timeout')), 8000))
+  ]).catch(err => {
+    throw new Error('buyTokenSingle: failed to fetch pool info: ' + (err.message || err));
+  });
+
   const buyingBase = (pool.baseMint === mint);
   const WSOL = 'So11111111111111111111111111111111111111112';
-  const userWSOL = await ensureATA(WSOL, payer.publicKey);
   const amountIn = Math.floor(solAmount * LAMPORTS_PER_SOL);
-  const rawBalance = await connection.getTokenAccountBalance(userWSOL);
-  const wsolBalance = Number(rawBalance.value.amount);
-  if (wsolBalance < amountIn) {
+  if (amountIn <= 0) throw new Error('buyTokenSingle: amountIn too small');
+
+  // 2) ensure WSOL ATA exists for payer
+  const userWSOL = await ensureATA(WSOL, payer.publicKey);
+
+  // 3) check balance and wrap SOL if needed
+  try {
+    const rawBalance = await connection.getTokenAccountBalance(userWSOL);
+    const wsolBalance = Number(rawBalance?.value?.amount || 0);
+    log(`💰 WSOL balance for payer: ${wsolBalance} (need ${amountIn})`);
+
+    if (wsolBalance < amountIn) {
+      log(`💸 Wrapping ${solAmount} SOL (${amountIn} lamports) for payer`);
+      const wrapTx = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: payer.publicKey,
+          toPubkey: userWSOL,
+          lamports: amountIn
+        }),
+        createSyncNativeInstruction(userWSOL)
+      );
+      await sendPrivateTransaction(wrapTx);
+      log('✅ Wrap completed');
+    }
+  } catch (err) {
+    warn('⚠️ Could not check/wrap WSOL balance:', err.message || err);
+    // attempt wrap anyway
     const wrapTx = new Transaction().add(
       SystemProgram.transfer({
         fromPubkey: payer.publicKey,
@@ -935,82 +1062,179 @@ async function buyTokenSingle(mint, solAmount) {
     );
     await sendPrivateTransaction(wrapTx);
   }
-  const userOutATA = await ensureATA(buyingBase ? mint : WSOL, payer.publicKey);
-  const swapIx = await buildSwapInstruction({
-    poolKeys: pool,
-    userKeys: {
-      tokenAccountIn: userWSOL,
-      tokenAccountOut: userOutATA,
-      owner: payer.publicKey,
-      payer: payer.publicKey
-    },
-    amountIn,
-    minAmountOut: 1,
-    direction: buyingBase ? 'quote2base' : 'base2quote'
-  });
-  const tx = new Transaction();
-  swapIx.innerTransactions.forEach(({ instructions }) =>
-    instructions.forEach(ix => tx.add(ix))
-  );
-  return await sendPrivateTransaction(tx);
-}
 
-async function sellTokenMEVProtected(mint, sellPct) {
-  console.log(`🛡️ Starting MEV-protected sell for ${sellPct}%`);
-  const mevAnalysis = await mevProtection.detectMEVActivity(mint);
-  const protection = mevAnalysis.recommendation;
-  if (sellPct === 100 || protection === 'high') {
-    return await sellTokenSingle(mint, sellPct);
-  } else {
-    const chunks = Math.min(3, Math.ceil(sellPct / 25));
-    const chunkPct = sellPct / chunks;
-    const delays = mevProtection.generateDelays(chunks - 1, protection);
-    const results = [];
-    for (let i = 0; i < chunks; i++) {
-      try {
-        const tx = await sellTokenSingle(mint, chunkPct);
-        results.push(tx);
-        if (i < chunks - 1) {
-          await new Promise(resolve => setTimeout(resolve, delays[i]));
-        }
-      } catch (err) {
-        console.error(`❌ Sell chunk ${i + 1} failed:`, err.message);
-      }
+  // 4) ensure output ATA exists
+  const toMint = buyingBase ? mint : WSOL;
+  const userOutATA = await ensureATA(toMint, payer.publicKey);
+
+  // 5) build swap instruction (tolerate different shapes)
+  let swapIx;
+  try {
+    swapIx = await buildSwapInstruction({
+      poolKeys: pool,
+      userKeys: {
+        tokenAccountIn: userWSOL,
+        tokenAccountOut: userOutATA,
+        owner: payer.publicKey,
+        payer: payer.publicKey
+      },
+      amountIn,
+      minAmountOut: 1,
+      direction: buyingBase ? 'quote2base' : 'base2quote'
+    });
+  } catch (err) {
+    throw new Error('buyTokenSingle: buildSwapInstruction failed: ' + (err.message || err));
+  }
+
+  // 6) assemble transaction (handles different SDK return shapes)
+  const tx = new Transaction();
+  try {
+    if (swapIx?.innerTransactions && Array.isArray(swapIx.innerTransactions)) {
+      swapIx.innerTransactions.forEach(t => (t.instructions || []).forEach(ix => tx.add(ix)));
+    } else if (Array.isArray(swapIx?.instructions)) {
+      swapIx.instructions.forEach(ix => tx.add(ix));
+    } else if (Array.isArray(swapIx)) {
+      swapIx.forEach(ix => tx.add(ix));
+    } else {
+      throw new Error('buyTokenSingle: unexpected swapIx shape');
     }
-    return results;
+  } catch (err) {
+    throw new Error('buyTokenSingle: failed to compose swap tx: ' + (err.message || err));
+  }
+
+  // 7) send transaction via private pool / fallback
+  try {
+    const sig = await sendPrivateTransaction(tx);
+    log('✅ buyTokenSingle tx signature:', sig);
+    return sig;
+  } catch (err) {
+    throw new Error('buyTokenSingle: send failed: ' + (err.message || err));
   }
 }
 
+/**
+ * MEV-protected sell (splits) — returns array of tx sigs/results
+ */
+async function sellTokenMEVProtected(mint, sellPct) {
+  if (!mint) throw new Error('sellTokenMEVProtected: mint required');
+  if (!Number.isFinite(sellPct) || sellPct <= 0 || sellPct > 100) throw new Error('sellTokenMEVProtected: invalid sellPct');
+
+  log(`🛡️ sellTokenMEVProtected: ${sellPct}% for ${mint}`);
+  const analysis = await mevProtection.detectMEVActivity(mint);
+  const protection = analysis.recommendation || 'medium';
+
+  if (sellPct === 100 || protection === 'high') {
+    return [await sellTokenSingle(mint, sellPct)];
+  }
+
+  const chunks = Math.min(3, Math.ceil(sellPct / 25));
+  const chunkPct = sellPct / chunks;
+  const delays = mevProtection.generateDelays(Math.max(0, chunks - 1), protection);
+
+  const results = [];
+  for (let i = 0; i < chunks; i++) {
+    try {
+      const tx = await sellTokenSingle(mint, chunkPct);
+      results.push(tx);
+      log(`✅ Sell chunk ${i + 1} sig: ${tx}`);
+    } catch (err) {
+      error(`❌ Sell chunk ${i + 1} failed:`, err.message || err);
+      results.push({ error: err.message || String(err) });
+    }
+    if (i < delays.length) await new Promise(r => setTimeout(r, delays[i]));
+  }
+  return results;
+}
+
+/**
+ * Single sell: computes amount based on wallet balance and executes swap.
+ * Returns signature.
+ */
 async function sellTokenSingle(mint, sellPct) {
-  const pool = await getRaydiumPoolInfo(mint);
+  if (!mint) throw new Error('sellTokenSingle: mint required');
+  if (!Number.isFinite(sellPct) || sellPct <= 0) throw new Error('sellTokenSingle: invalid sellPct');
+
+  log(`🔎 sellTokenSingle: mint=${mint}, pct=${sellPct}`);
+
+  const pool = await Promise.race([
+    getRaydiumPoolInfo(mint),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('getRaydiumPoolInfo timeout')), 8000))
+  ]).catch(err => {
+    throw new Error('sellTokenSingle: failed to fetch pool info: ' + (err.message || err));
+  });
+
   const baseMint = pool.baseMint;
   const WSOL = 'So11111111111111111111111111111111111111112';
+
+  // Ensure ATAs
   const userBaseATA = await ensureATA(baseMint, payer.publicKey);
   const userWSOL = await ensureATA(WSOL, payer.publicKey);
-  const rawBal = await connection.getTokenAccountBalance(userBaseATA);
-  const bal = Number(rawBal.value.amount);
+
+  // Get token balance and compute amount to sell
+  let rawBal;
+  try {
+    rawBal = await connection.getTokenAccountBalance(userBaseATA);
+  } catch (err) {
+    throw new Error('sellTokenSingle: failed to get token balance: ' + (err.message || err));
+  }
+
+  const bal = Number(rawBal?.value?.amount || 0);
   const amountIn = Math.floor(bal * (sellPct / 100));
   if (amountIn < 1) {
-    throw new Error('Not enough token balance to sell');
+    throw new Error('sellTokenSingle: Not enough token balance to sell');
   }
-  const swapIx = await buildSwapInstruction({
-    poolKeys: pool,
-    userKeys: {
-      tokenAccountIn: userBaseATA,
-      tokenAccountOut: userWSOL,
-      owner: payer.publicKey,
-      payer: payer.publicKey
-    },
-    amountIn,
-    minAmountOut: 1,
-    direction: 'base2quote'
-  });
+
+  // Build swap
+  let swapIx;
+  try {
+    swapIx = await buildSwapInstruction({
+      poolKeys: pool,
+      userKeys: {
+        tokenAccountIn: userBaseATA,
+        tokenAccountOut: userWSOL,
+        owner: payer.publicKey,
+        payer: payer.publicKey
+      },
+      amountIn,
+      minAmountOut: 1,
+      direction: 'base2quote'
+    });
+  } catch (err) {
+    throw new Error('sellTokenSingle: buildSwapInstruction failed: ' + (err.message || err));
+  }
+
+  // Compose tx
   const tx = new Transaction();
-  swapIx.innerTransactions.forEach(({ instructions }) =>
-    instructions.forEach(ix => tx.add(ix))
-  );
-  return await sendPrivateTransaction(tx);
-}
+  try {
+    if (swapIx?.innerTransactions && Array.isArray(swapIx.innerTransactions)) {
+      swapIx.innerTransactions.forEach(t => (t.instructions || []).forEach(ix => tx.add(ix)));
+    } else if (Array.isArray(swapIx?.instructions)) {
+      swapIx.instructions.forEach(ix => tx.add(ix));
+    } else if (Array.isArray(swapIx)) {
+      swapIx.forEach(ix => tx.add(ix));
+    } else {
+      throw new Error('sellTokenSingle: unexpected swapIx shape');
+    }
+  } catch (err) {
+    throw new Error('sellTokenSingle: failed to compose swap tx: ' + (err.message || err));
+  }
+
+  try {
+    const sig = await sendPrivateTransaction(tx);
+    log('✅ sellTokenSingle tx sig:', sig);
+    return sig;
+  } catch (err) {
+    throw new Error('sellTokenSingle: send failed: ' + (err.message || err));
+  }
+  }
+
+
+
+
+
+    
+        
+  
 
 // === MENU HELPERS ===
 function getMainMenu() {

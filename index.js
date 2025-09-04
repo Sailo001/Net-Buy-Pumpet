@@ -1237,7 +1237,11 @@ async function sellTokenSingle(mint, sellPct) {
   
 
 // === MENU HELPERS ===
+// === MENU HELPERS WITH LOGGING & VALIDATION ===
+
+// Main Menu
 function getMainMenu() {
+  console.log("📲 Rendering Main Menu");
   return Markup.inlineKeyboard([
     [Markup.button.callback('⚙️ Setup Configuration', 'start_setup')],
     [Markup.button.callback('📊 View Status', 'refresh_status')],
@@ -1250,7 +1254,9 @@ function getMainMenu() {
   ]);
 }
 
+// Advanced Menu
 function getAdvancedMenu() {
+  console.log("⚙️ Rendering Advanced Menu");
   return Markup.inlineKeyboard([
     [Markup.button.callback('🛡️ Toggle MEV Protection', 'toggle_mev')],
     [Markup.button.callback('🎭 Toggle Multi-Wallet', 'toggle_multiwallet')],
@@ -1259,14 +1265,18 @@ function getAdvancedMenu() {
   ]);
 }
 
+// Setup Menu
 function getSetupMenu() {
+  console.log("🛠️ Rendering Setup Menu");
   return Markup.inlineKeyboard([
     [Markup.button.callback('❌ Cancel Setup', 'cancel_setup')],
     [Markup.button.callback('🏠 Main Menu', 'main_menu')]
   ]);
 }
 
+// Status Menu
 function getStatusMenu() {
+  console.log("📊 Rendering Status Menu");
   return Markup.inlineKeyboard([
     [Markup.button.callback('⚙️ New Setup', 'start_setup')],
     [Markup.button.callback('🔥 Start Pump', 'start_pump')],
@@ -1276,36 +1286,50 @@ function getStatusMenu() {
   ]);
 }
 
+// User Setup State Handlers
 function clearUserSetup(userId) {
+  console.log(`🧹 Clearing setup for user ${userId}`);
   setupFlow.users.delete(userId);
   setupFlow.data.delete(userId);
 }
 
 function getCurrentStep(userId) {
-  return setupFlow.users.get(userId);
+  const step = setupFlow.users.get(userId);
+  console.log(`📍 Current step for user ${userId}: ${step || 'none'}`);
+  return step;
 }
 
 function setUserStep(userId, step) {
+  if (!Object.values(SETUP_STEPS).includes(step)) {
+    console.warn(`⚠️ Invalid setup step attempted: ${step}`);
+    return;
+  }
+  console.log(`✅ Setting step for user ${userId} → ${step}`);
   setupFlow.users.set(userId, step);
 }
 
 function getUserData(userId) {
   if (!setupFlow.data.has(userId)) {
+    console.log(`ℹ️ Initializing new userData for user ${userId}`);
     setupFlow.data.set(userId, {});
   }
-  return setupFlow.data.get(userId);
+  const data = setupFlow.data.get(userId);
+  console.log(`📦 Retrieved userData for ${userId}:`, JSON.stringify(data));
+  return data;
 }
 
+// Show current session config
 function showCurrentConfig() {
+  console.log("📋 Showing current global session config");
   return [
     '📊 **Current Configuration:**',
     '',
-    `🎯 **Token:** ${session.mint || 'Not set'}`,
-    `💰 **Buy Amount:** ${session.buySol} SOL`,
-    `📈 **Sell Percentage:** ${session.sellPct}%`,
-    `⏱️ **Delay:** ${session.delaySec} seconds`,
-    `🔄 **Multi-Buys:** ${session.multiBuys} per cycle`,
-    `📈 **Buy Scaling:** ${session.buyScale}x`,
+    `🎯 **Token:** ${session.mint || '❌ Not set'}`,
+    `💰 **Buy Amount:** ${session.buySol || 0} SOL`,
+    `📈 **Sell Percentage:** ${session.sellPct || 0}%`,
+    `⏱️ **Delay:** ${session.delaySec || 0} seconds`,
+    `🔄 **Multi-Buys:** ${session.multiBuys || 0} per cycle`,
+    `📈 **Buy Scaling:** ${session.buyScale || 1.0}x`,
     '',
     '🛡️ **Advanced Features:**',
     `🛡️ MEV Protection: ${session.mevProtection ? '🟢 ON' : '🔴 OFF'}`,
@@ -1314,18 +1338,19 @@ function showCurrentConfig() {
   ].join('\n');
 }
 
+// Show setup summary for a specific user
 function getSetupSummary(userData) {
+  console.log("📋 Building setup summary:", userData);
   return [
     '📋 **Setup Summary:**',
     '',
-    `🎯 **Token Contract:** ${userData.mint || 'Not set'}`,
-    `💰 **Buy Amount:** ${userData.buySol || 'Not set'} SOL`,
-    `📈 **Sell Percentage:** ${userData.sellPct || 'Not set'}%`,
-    `⏱️ **Delay:** ${userData.delaySec || 'Not set'} seconds`,
-    `🔄 **Multi-Buys:** ${userData.multiBuys || 'Not set'} per cycle`
+    `🎯 **Token Contract:** ${userData.mint || '❌ Not set'}`,
+    `💰 **Buy Amount:** ${userData.buySol || '❌ Not set'} SOL`,
+    `📈 **Sell Percentage:** ${userData.sellPct || '❌ Not set'}%`,
+    `⏱️ **Delay:** ${userData.delaySec || '❌ Not set'} seconds`,
+    `🔄 **Multi-Buys:** ${userData.multiBuys || '❌ Not set'} per cycle`
   ].join('\n');
-}
-
+                                           }
 // === TELEGRAM HANDLERS ===
 bot.start(ctx => {
   if (ctx.from.id.toString() !== ADMIN) return;

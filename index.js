@@ -236,6 +236,7 @@ function clearUserSetup(userId) {
   }
 
 // === BASIC CONFIGURATION ===
+// === BASIC CONFIGURATION ===
 const {
   TELEGRAM_BOT_TOKEN: TELEGRAM_TOKEN,
   ADMIN_CHAT_ID: ADMIN,
@@ -245,14 +246,30 @@ const {
   WALLET_PRIVATE_KEYS: WALLET_KEYS
 } = process.env;
 
+// Validate critical environment variables
+if (!TELEGRAM_TOKEN) throw new Error("❌ TELEGRAM_BOT_TOKEN is missing in environment");
+if (!ADMIN) throw new Error("❌ ADMIN_CHAT_ID is missing in environment");
+if (!PRIVATE_KEY) throw new Error("❌ SOLANA_PRIVATE_KEY is missing in environment");
+
 const rpcEndpoint = RPC_URL || 'https://api.mainnet-beta.solana.com';
+console.log(`🌐 Using Solana RPC endpoint: ${rpcEndpoint}`);
+
+let payer;
+try {
+  payer = Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY));
+  console.log(`💼 Main wallet loaded: ${payer.publicKey.toString().slice(0, 8)}...`);
+} catch (err) {
+  console.error("❌ Failed to decode SOLANA_PRIVATE_KEY:", err.message);
+  process.exit(1);
+}
+
 const connection = new Connection(rpcEndpoint, 'confirmed');
-const payer = Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY));
 const bot = new Telegraf(TELEGRAM_TOKEN);
 
 let running = false;
 let isShuttingDown = false;
 
+// Global session state
 let session = {
   mint: '',
   buySol: 0,
@@ -264,6 +281,7 @@ let session = {
   multiWallet: false
 };
 
+// Setup flow state
 const setupFlow = {
   users: new Map(),
   data: new Map()
@@ -286,11 +304,14 @@ class MEVProtection {
   }
 
   async detectMEVActivity(mint) {
+    console.log(`🔍 Starting MEV analysis for token: ${mint}`);
     try {
       const signatures = await connection.getConfirmedSignaturesForAddress2(
         new PublicKey(mint),
         { limit: 50 }
       );
+      console.log(`📜 Retrieved ${signatures.length} signatures for analysis`);
+
       const txDetails = await Promise.all(
         signatures.slice(0, 20).map(sig =>
           connection.getTransaction(sig.signature, { commitment: 'confirmed' })
@@ -298,16 +319,18 @@ class MEVProtection {
       );
 
       const mevIndicators = {
-        frontRuns: 0,
+        frontRuns: 0, // TODO: add detection heuristics
         sandwiches: 0,
         copyTrades: 0,
-        totalTxs: txDetails.length
+        totalTxs: txDetails.filter(Boolean).length
       };
 
       const riskScore = this.calculateMEVRisk(mevIndicators);
-      console.log(`🔍 MEV Analysis for ${mint.slice(0, 8)}:`, {
-        risk: riskScore.toFixed(2),
-        totalTxs: mevIndicators.totalTxs
+
+      console.log(`🔎 MEV analysis results for ${mint.slice(0, 8)}...`, {
+        totalTxs: mevIndicators.totalTxs,
+        riskScore: riskScore.toFixed(2),
+        recommendation: this.getProtectionRecommendation(riskScore)
       });
 
       return {
@@ -316,7 +339,7 @@ class MEVProtection {
         recommendation: this.getProtectionRecommendation(riskScore)
       };
     } catch (err) {
-      console.error('MEV detection error:', err);
+      console.error('❌ MEV detection error:', err.message);
       return { riskScore: 0.5, recommendation: 'medium' };
     }
   }
@@ -342,12 +365,17 @@ class MEVProtection {
     const { chunks, variance } = config[protection];
     const baseSize = amount / chunks;
     const sizes = [];
+
     for (let i = 0; i < chunks; i++) {
       const randomFactor = 1 + (Math.random() - 0.5) * variance;
       sizes.push(baseSize * randomFactor);
     }
+
     const total = sizes.reduce((sum, size) => sum + size, 0);
-    return sizes.map(size => (size / total) * amount);
+    const adjusted = sizes.map(size => (size / total) * amount);
+
+    console.log(`✂️ Transaction split (${protection}):`, adjusted);
+    return adjusted;
   }
 
   generateDelays(count, protection = 'medium') {
@@ -357,11 +385,21 @@ class MEVProtection {
       high: { min: 500, max: 3000 }
     };
     const { min, max } = config[protection];
-    return Array(count).fill().map(() =>
+    const delays = Array.from({ length: count }, () =>
       Math.floor(Math.random() * (max - min) + min)
     );
+    console.log(`⏱️ Generated delays (${protection}):`, delays);
+    return delays;
   }
 }
+
+const mevProtection = new MEVProtection();
+
+
+
+
+      
+    
 
 // === MULTI-WALLET ORCHESTRATION ===
 class MultiWalletOrchestrator {
